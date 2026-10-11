@@ -1,0 +1,8 @@
+dist/*.html
+__pycache__/
+.venv/
+*.pyc
+*.tmp
+.DS_Store
+.claude/settings.local.json
+tmp/
