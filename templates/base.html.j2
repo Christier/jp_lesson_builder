@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>N1日語学習 {{ meta.date_jp }}</title>
+<style>
+{{ css }}
+</style>
+</head>
+<body data-date="{{ meta.date }}">
+<div class="container">
+
+<div class="top-header">
+  <h1>📚 N1日語学習 — {{ meta.date_jp }}（{{ meta.weekday }}）</h1>
+  <div class="meta">🌍 ニュースソース：{{ meta.sources }}</div>
+  <div class="meta">⏱️ 学習時間：約{{ meta.study_minutes }}分 | 🎯 難易度：{{ meta.level }} | {{ meta.get('theme_emoji','🗣️') }} 今日のテーマ：{{ meta.theme_label }}</div>
+  <div class="badge-row">
+{% for b in meta.badges %}
+    <span class="badge {{ b.color }}">{{ b.text }}</span>
+{% endfor %}
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('news')">{{ meta.tabs.news }}</div>
+  <div class="tab" onclick="switchTab('scene')">{{ meta.tabs.scene }}</div>
+  <div class="tab" onclick="switchTab('ext')">{{ meta.tabs.ext }}</div>
+</div>
+
+<!-- ============ NEWS ============ -->
+<div id="tab-news" class="panel">
+  <div style="margin-bottom:1.2rem;">
+    <h2 style="color:var(--ink);font-size:1.4rem;margin-bottom:.4rem;">{{ news.heading }}</h2>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#fef08a;border-bottom:2px solid #ca8a04;"></div><span>重要単語（クリックで解説）</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#bbf7d0;border-bottom:2px solid #16a34a;"></div><span>重要文法・日常表現（クリックで解説）</span></div>
+    </div>
+    <div class="audio-note">{{ news.audio_note }}</div>
+  </div>
+
+{% for a in news.articles %}
+  <div class="news-article">
+    <div class="news-header"{% if a.get('gradient') %} style="background:linear-gradient(135deg,{{ a.get('gradient')[0] }},{{ a.get('gradient')[1] }});"{% endif %}>
+      <div class="source">{{ a.source }}</div>
+      <h2>{{ a.title }}</h2>
+      <div class="date">{{ a.date_line }}</div>
+    </div>
+    <div class="news-body">
+      <div class="tts-player" id="tts{{ loop.index }}">
+        <button class="tts-btn play" onclick="playTTS('news{{ loop.index }}-text','tts{{ loop.index }}','status{{ loop.index }}')">🔊 音声を再生</button>
+        <button class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
+        <button class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
+        <div class="tts-speed">速度：<select id="speed-tts{{ loop.index }}" class="speed-sel"><option value="0.7">0.7x</option><option value="0.85">0.85x</option><option value="1.0" selected>1.0x</option><option value="1.15">1.15x</option></select></div>
+        <div class="tts-status" id="status{{ loop.index }}">▶ 再生ボタンを押してください</div>
+      </div>
+
+      <div class="news-text" id="news{{ loop.index }}-text">{{ a.body_html }}</div>
+
+{% for t in a.tooltips %}
+      <div class="tooltip-box hidden" id="{{ t.id }}">{{ t.body }}</div>
+{% endfor %}
+
+      <div class="vocab-box">
+        <h4>{{ a.vocab_box.title }}</h4>
+        <div class="vocab-grid">
+{% for v in a.vocab_box["items"] %}
+          <div class="vocab-card"><div class="vc-jp">{{ v.jp }}</div><div class="vc-cn">{{ v.cn }}</div><div class="vc-ex">{{ v.ex }}</div></div>
+{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+{% if news.get('headlines') %}
+  <div class="headline-list">
+    <h4>📌 その他、本日の主な見出し（雑談・議論のネタに）</h4>
+{% for h in news.get('headlines') %}
+    <div class="hl-item"><span class="hl-time">{{ h.time }}</span>{{ h.jp }}　<span class="hl-cn">（{{ h.cn }}）</span></div>
+{% endfor %}
+  </div>
+{% endif %}
+
+  <textarea class="notes-area" placeholder="📝 ニュースで気になった表現・語彙をメモ..."></textarea>
+</div><!-- /tab-news -->
+
+<!-- ============ SCENE ============ -->
+<div id="tab-scene" class="panel hidden">
+  <div class="scene-header">
+    <h2>{{ scene.title }}</h2>
+    <p style="opacity:.95;margin-top:.4rem;">{{ scene.intro }}</p>
+  </div>
+
+{% if scene.get('aim') %}
+  <div class="info-card">💡 <b>今日の会話の狙い</b>：{{ scene.aim }}</div>
+{% endif %}
+
+{% if scene.get('illustrations') %}
+  <h3 class="section-h">🖼️ 図解</h3>
+  <div class="illust-row">
+{% for i in scene.get('illustrations') %}
+    <div class="illust-card">
+      {{ i.svg }}
+      <div class="ic-title">{{ i.title }}</div>
+      <div class="ic-sub">{{ i.sub }}</div>
+      <div class="ic-note">{{ i.note }}</div>
+    </div>
+{% endfor %}
+  </div>
+{% endif %}
+
+  <h3 class="section-h">📖 {{ scene.vocab_heading }}（{{ scene.vocab|length }}語）</h3>
+  <div class="scene-vocab-grid">
+{% for v in scene.vocab %}
+    <div class="scene-vocab-card"><div class="svc-jp">{{ v.jp }}</div><div class="svc-cn">{{ v.cn }}</div><div class="svc-note">{{ v.note }}</div></div>
+{% endfor %}
+  </div>
+
+  <h3 class="section-h">💬 場面会話（全{{ scene.turns|length }}ターン）</h3>
+
+  <div class="tts-player" id="ttsdlg">
+    <button class="tts-btn play" onclick="playTTS('dialogue-full','ttsdlg','statusdlg')">🔊 会話全文を再生</button>
+    <button class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
+    <button class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
+    <div class="tts-speed">速度：<select id="speed-ttsdlg" class="speed-sel"><option value="0.7">0.7x</option><option value="0.85" selected>0.85x</option><option value="1.0">1.0x</option></select></div>
+    <div class="tts-status" id="statusdlg">{{ scene.get('tts_hint','▶ 再生ボタンを押してください') }}</div>
+  </div>
+  <div id="dialogue-full" style="display:none;">{{ scene.dialogue_full }}</div>
+
+  <div class="dialogue-wrap">
+    <div class="dialogue-title">{{ scene.dialogue_title }}</div>
+{% for t in scene.turns %}
+{% if t.get('section') %}
+    <div class="section-tag">{{ t.get('section') }}</div>
+{% endif %}
+    <div class="turn{% if t.get('side') == 'right' %} right{% endif %}"><div class="speaker-badge sp-{{ t.speaker }}">{{ t.speaker_label }}</div><div class="bubble">
+      <div class="b-jp">{{ t.jp|inline }}</div>
+      <div class="b-cn">{{ t.cn }}</div>
+{% if t.get('note') %}
+      <div class="b-note">{{ t.get('note') }}</div>
+{% endif %}
+    </div></div>
+{% endfor %}
+  </div>
+
+  <div class="challenge">
+    <h4>🎯 ロールプレイチャレンジ</h4>
+    <p>{{ scene.roleplay }}</p>
+  </div>
+
+  <textarea class="notes-area" placeholder="📝 今日の場面で使えそうな表現をメモ..."></textarea>
+</div><!-- /tab-scene -->
+
+<!-- ============ EXT ============ -->
+<div id="tab-ext" class="panel hidden">
+  <h2 style="color:var(--ink);font-size:1.4rem;margin-bottom:1rem;">🧩 拡張学習</h2>
+
+{% for s in ext.sections %}
+  <h3 class="section-h">{{ s.heading }}</h3>
+{% if s.get('lead') %}
+  <p style="color:#555;font-size:.93rem;margin-bottom:.7rem;">{{ s.get('lead') }}</p>
+{% endif %}
+{% if s.type == 'table' %}
+  <table class="compare-table">
+    <tr>{% for h in s.headers %}<th>{{ h }}</th>{% endfor %}</tr>
+{% for row in s.rows %}
+    <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+{% endfor %}
+  </table>
+{% elif s.type == 'cards' %}
+  <div class="scene-vocab-grid">
+{% for v in s["items"] %}
+    <div class="scene-vocab-card"><div class="svc-jp">{{ v.jp }}</div><div class="svc-cn">{{ v.cn }}</div><div class="svc-note">{{ v.note }}</div></div>
+{% endfor %}
+  </div>
+{% elif s.type == 'info' %}
+{% for card in s.cards %}
+  <div class="info-card">{{ card }}</div>
+{% endfor %}
+{% elif s.type == 'note' %}
+  <div class="study-note">{{ s.body }}</div>
+{% endif %}
+{% endfor %}
+
+  <h3 class="section-h">✅ 今日の理解度チェック（{{ ext.quiz|length }}問）</h3>
+{% for q in ext.quiz %}
+  <div class="quiz-item"><div class="quiz-q">Q{{ loop.index }}. {{ q.q }}</div>
+    <button class="quiz-btn" onclick="this.nextElementSibling.classList.toggle('hidden')">答えを見る</button>
+    <div class="quiz-a hidden">{{ q.a }}</div></div>
+{% endfor %}
+
+  <div class="challenge">
+    <h4>🎯 総合チャレンジ：今日の集大成</h4>
+    <p>{{ ext.challenge }}</p>
+  </div>
+
+  <textarea class="notes-area" placeholder="📝 拡張学習のメモ・通訳の下書き..."></textarea>
+</div><!-- /tab-ext -->
+
+</div><!-- /container -->
+
+<script>
+{{ js }}
+</script>
+</body>
+</html>
