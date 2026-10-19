@@ -8,7 +8,7 @@
 {{ css }}
 </style>
 </head>
-<body data-date="{{ meta.date }}">
+<body data-date="{{ meta.date }}" class="fg-on">
 <div class="container">
 
 <div class="top-header">
@@ -22,44 +22,75 @@
   </div>
 </div>
 
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('news')">{{ meta.tabs.news }}</div>
-  <div class="tab" onclick="switchTab('scene')">{{ meta.tabs.scene }}</div>
-  <div class="tab" onclick="switchTab('ext')">{{ meta.tabs.ext }}</div>
+<!-- タブ＋読みやすさ設定（スクロールしても上に残る） -->
+<div class="topbar">
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab active" role="tab" onclick="switchTab('news')">{{ meta.tabs.news }}</button>
+    <button type="button" class="tab" role="tab" onclick="switchTab('scene')">{{ meta.tabs.scene }}</button>
+    <button type="button" class="tab" role="tab" onclick="switchTab('ext')">{{ meta.tabs.ext }}</button>
+  </div>
+  <div class="tools" aria-label="表示設定">
+    <button type="button" class="tool" id="tool-fg" onclick="cycleFurigana()" title="振り仮名の表示を切り替え">ふりがな：表示</button>
+    <button type="button" class="tool" id="tool-hl" onclick="toggleSetting('hl')" title="ハイライトの表示を切り替え">ハイライト：表示</button>
+    <button type="button" class="tool" id="tool-cn" onclick="toggleSetting('cn')" title="会話・見出しの中国語訳をぼかす（タップで個別に表示）">中文：表示</button>
+    <span class="tool-group" title="文字サイズ"><button type="button" class="tool" onclick="fontStep(-1)" aria-label="文字を小さく">A−</button><button type="button" class="tool" onclick="fontStep(1)" aria-label="文字を大きく">A＋</button></span>
+  </div>
 </div>
 
 <!-- ============ NEWS ============ -->
 <div id="tab-news" class="panel">
   <div style="margin-bottom:1.2rem;">
-    <h2 style="color:var(--ink);font-size:1.4rem;margin-bottom:.4rem;">{{ news.heading }}</h2>
+    <h2 class="panel-h">{{ news.heading }}</h2>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:#fef08a;border-bottom:2px solid #ca8a04;"></div><span>重要単語（クリックで解説）</span></div>
       <div class="legend-item"><div class="legend-dot" style="background:#bbf7d0;border-bottom:2px solid #16a34a;"></div><span>重要文法・日常表現（クリックで解説）</span></div>
+      <div class="legend-item"><ruby>読<rt>よ</rt></ruby><span>振り仮名（上の「ふりがな」で 表示／タップで表示／非表示）</span></div>
+      <div class="legend-item"><span class="p-play-demo">▶</span><span>段落ごとに読み上げ</span></div>
     </div>
     <div class="audio-note">{{ news.audio_note }}</div>
   </div>
 
+  <nav class="news-toc" aria-label="本日のニュース">
 {% for a in news.articles %}
-  <div class="news-article">
+    <a class="toc-item" href="#{{ a.anchor }}">
+      <span class="toc-no">{{ loop.index }}</span>
+      <span class="toc-body">
+        <span class="toc-field">{{ a.field }}</span>
+        <span class="toc-title">{{ a.title }}</span>
+        <span class="toc-meta">約{{ a.stats.minutes }}分 ・ {{ a.stats.chars }}字 ・ 重要語{{ a.stats.highlights }}</span>
+      </span>
+    </a>
+{% endfor %}
+  </nav>
+
+{% for a in news.articles %}
+  <article class="news-article" id="{{ a.anchor }}">
     <div class="news-header"{% if a.get('gradient') %} style="background:linear-gradient(135deg,{{ a.get('gradient')[0] }},{{ a.get('gradient')[1] }});"{% endif %}>
       <div class="source">{{ a.source }}</div>
       <h2>{{ a.title }}</h2>
       <div class="date">{{ a.date_line }}</div>
+      <div class="art-stats"><span>📖 約{{ a.stats.minutes }}分</span><span>✍️ {{ a.stats.chars }}字</span><span>🔖 重要語 {{ a.stats.highlights }}</span></div>
     </div>
     <div class="news-body">
       <div class="tts-player" id="tts{{ loop.index }}">
-        <button class="tts-btn play" onclick="playTTS('news{{ loop.index }}-text','tts{{ loop.index }}','status{{ loop.index }}')">🔊 音声を再生</button>
-        <button class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
-        <button class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
+        <button type="button" class="tts-btn play" onclick="playTTS('news{{ loop.index }}-text','tts{{ loop.index }}','status{{ loop.index }}')">🔊 全文を再生</button>
+        <button type="button" class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
+        <button type="button" class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
         <div class="tts-speed">速度：<select id="speed-tts{{ loop.index }}" class="speed-sel"><option value="0.7">0.7x</option><option value="0.85">0.85x</option><option value="1.0" selected>1.0x</option><option value="1.15">1.15x</option></select></div>
         <div class="tts-status" id="status{{ loop.index }}">▶ 再生ボタンを押してください</div>
       </div>
 
-      <div class="news-text" id="news{{ loop.index }}-text">{{ a.body_html }}</div>
-
-{% for t in a.tooltips %}
-      <div class="tooltip-box hidden" id="{{ t.id }}">{{ t.body }}</div>
+      <div class="news-text" id="news{{ loop.index }}-text" data-player="tts{{ loop.index }}" data-status="status{{ loop.index }}">
+{% for ph in a.paras_html %}
+        <p class="np"><button type="button" class="p-play no-tts" onclick="playPara(this)" title="この段落を読み上げ" aria-label="第{{ loop.index }}段落を読み上げ">▶</button>{{ ph }}</p>
 {% endfor %}
+      </div>
+
+      <div class="tip-store">
+{% for t in a.tooltips %}
+        <div class="tooltip-box hidden" id="{{ t.id }}">{{ t.body }}</div>
+{% endfor %}
+      </div>
 
       <div class="vocab-box">
         <h4>{{ a.vocab_box.title }}</h4>
@@ -70,7 +101,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </article>
 {% endfor %}
 
 {% if news.get('headlines') %}
@@ -82,7 +113,7 @@
   </div>
 {% endif %}
 
-  <textarea class="notes-area" placeholder="📝 ニュースで気になった表現・語彙をメモ..."></textarea>
+  <textarea class="notes-area" placeholder="📝 ニュースで気になった表現・語彙をメモ...（ブラウザに自動保存）"></textarea>
 </div><!-- /tab-news -->
 
 <!-- ============ SCENE ============ -->
@@ -120,9 +151,9 @@
   <h3 class="section-h">💬 場面会話（全{{ scene.turns|length }}ターン）</h3>
 
   <div class="tts-player" id="ttsdlg">
-    <button class="tts-btn play" onclick="playTTS('dialogue-full','ttsdlg','statusdlg')">🔊 会話全文を再生</button>
-    <button class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
-    <button class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
+    <button type="button" class="tts-btn play" onclick="playTTS('dialogue-full','ttsdlg','statusdlg')">🔊 会話全文を再生</button>
+    <button type="button" class="tts-btn pause" onclick="pauseTTS()">⏸ 一時停止/再開</button>
+    <button type="button" class="tts-btn stop" onclick="stopTTS()">⏹ 停止</button>
     <div class="tts-speed">速度：<select id="speed-ttsdlg" class="speed-sel"><option value="0.7">0.7x</option><option value="0.85" selected>0.85x</option><option value="1.0">1.0x</option></select></div>
     <div class="tts-status" id="statusdlg">{{ scene.get('tts_hint','▶ 再生ボタンを押してください') }}</div>
   </div>
@@ -149,25 +180,25 @@
     <p>{{ scene.roleplay }}</p>
   </div>
 
-  <textarea class="notes-area" placeholder="📝 今日の場面で使えそうな表現をメモ..."></textarea>
+  <textarea class="notes-area" placeholder="📝 今日の場面で使えそうな表現をメモ...（ブラウザに自動保存）"></textarea>
 </div><!-- /tab-scene -->
 
 <!-- ============ EXT ============ -->
 <div id="tab-ext" class="panel hidden">
-  <h2 style="color:var(--ink);font-size:1.4rem;margin-bottom:1rem;">🧩 拡張学習</h2>
+  <h2 class="panel-h">🧩 拡張学習</h2>
 
 {% for s in ext.sections %}
   <h3 class="section-h">{{ s.heading }}</h3>
 {% if s.get('lead') %}
-  <p style="color:#555;font-size:.93rem;margin-bottom:.7rem;">{{ s.get('lead') }}</p>
+  <p class="lead">{{ s.get('lead') }}</p>
 {% endif %}
 {% if s.type == 'table' %}
-  <table class="compare-table">
+  <div class="table-wrap"><table class="compare-table">
     <tr>{% for h in s.headers %}<th>{{ h }}</th>{% endfor %}</tr>
 {% for row in s.rows %}
     <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
 {% endfor %}
-  </table>
+  </table></div>
 {% elif s.type == 'cards' %}
   <div class="scene-vocab-grid">
 {% for v in s["items"] %}
@@ -186,7 +217,7 @@
   <h3 class="section-h">✅ 今日の理解度チェック（{{ ext.quiz|length }}問）</h3>
 {% for q in ext.quiz %}
   <div class="quiz-item"><div class="quiz-q">Q{{ loop.index }}. {{ q.q }}</div>
-    <button class="quiz-btn" onclick="this.nextElementSibling.classList.toggle('hidden')">答えを見る</button>
+    <button type="button" class="quiz-btn" onclick="this.nextElementSibling.classList.toggle('hidden')">答えを見る</button>
     <div class="quiz-a hidden">{{ q.a }}</div></div>
 {% endfor %}
 
@@ -195,10 +226,21 @@
     <p>{{ ext.challenge }}</p>
   </div>
 
-  <textarea class="notes-area" placeholder="📝 拡張学習のメモ・通訳の下書き..."></textarea>
+  <textarea class="notes-area" placeholder="📝 拡張学習のメモ・通訳の下書き...（ブラウザに自動保存）"></textarea>
 </div><!-- /tab-ext -->
 
+<p class="footer-note">ハイライト語をクリック（またはタブキーで選んで Enter）すると解説が開きます。Esc で閉じます。<br>印刷すると、解説をすべて展開した学習シートになります。</p>
 </div><!-- /container -->
+
+<div id="tip-pop" class="tip-pop" role="dialog" aria-label="語句の解説" hidden>
+  <div class="tip-pop-bar">
+    <span class="tip-pop-word"></span>
+    <button type="button" class="tip-say" onclick="sayPopWord()" title="発音を聞く" aria-label="発音を聞く">🔊</button>
+    <button type="button" class="tip-close" onclick="closeTooltip()" aria-label="閉じる">✕</button>
+  </div>
+  <div class="tip-pop-body"></div>
+</div>
+<button type="button" id="to-top" class="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="ページの先頭へ" hidden>↑</button>
 
 <script>
 {{ js }}

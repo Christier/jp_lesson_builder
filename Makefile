@@ -3,14 +3,14 @@
 DATE ?= $(shell date +%Y-%m-%d)
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: new build validate check all record finish open review rebuild doctor setup test clean
+.PHONY: new merge build validate check all record finish open review rebuild doctor setup test nightly clean
 
-new build validate check record finish open review:  ## 例: make check DATE=2026-09-20
+new merge build validate check record finish open review:  ## 例: make check DATE=2026-09-20
 	$(PYTHON) lesson.py $@ $(DATE)
 
 all: check
 
-rebuild doctor setup test:
+rebuild doctor setup test nightly:
 	$(PYTHON) lesson.py $@
 
 clean:

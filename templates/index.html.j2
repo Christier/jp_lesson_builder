@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>N1日語学習 教材一覧</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Hiragino Sans','Yu Gothic UI','Meiryo','Microsoft YaHei','Segoe UI',sans-serif;background:#111827;color:#f9fafb;padding:1.5rem 1rem;}
+.wrap{max-width:960px;margin:0 auto;}
+h1{font-size:1.6rem;margin-bottom:.3rem;}
+.sub{color:#9ca3af;font-size:.88rem;margin-bottom:1.5rem;}
+.list{display:grid;gap:.9rem;}
+.item{display:flex;gap:1rem;background:#fff;color:#1f2937;border-radius:.9rem;padding:1rem 1.2rem;text-decoration:none;border-left:8px solid var(--c);transition:transform .15s,box-shadow .15s;}
+.item:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.35);}
+.date{flex-shrink:0;width:5.2rem;text-align:center;}
+.date .md{font-size:1.5rem;font-weight:bold;color:var(--c);line-height:1.2;}
+.date .y{font-size:.75rem;color:#6b7280;}
+.body{min-width:0;}
+.theme{font-weight:bold;font-size:1.02rem;margin-bottom:.35rem;line-height:1.5;}
+.new{display:inline-block;background:#dc2626;color:#fff;font-size:.7rem;border-radius:9999px;padding:.05rem .55rem;margin-left:.4rem;vertical-align:middle;}
+.titles{list-style:none;font-size:.84rem;color:#4b5563;line-height:1.7;}
+.titles li::before{content:'📰 ';}
+.empty{color:#9ca3af;}
+@media(max-width:600px){.item{flex-direction:column;gap:.4rem;}.date{width:auto;text-align:left;display:flex;gap:.5rem;align-items:baseline;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📚 N1日語学習 教材一覧</h1>
+  <p class="sub">新しい順に {{ items|length }} 件。カードをクリックすると教材が開きます（このページは build のたびに自動更新）。</p>
+  <div class="list">
+{% for it in items %}
+    <a class="item" href="{{ it.href }}" style="--c:{{ it.color }}">
+      <div class="date"><div class="md">{{ it.date[5:7]|int }}/{{ it.date[8:10]|int }}</div><div class="y">{{ it.date[:4] }}（{{ it.weekday }}）</div></div>
+      <div class="body">
+        <div class="theme">{{ it.emoji }} {{ it.theme }}{% if loop.first %}<span class="new">最新</span>{% endif %}</div>
+        <ul class="titles">
+{% for t in it.titles %}
+          <li>{{ t }}</li>
+{% endfor %}
+        </ul>
+      </div>
+    </a>
+{% else %}
+    <p class="empty">まだ教材がありません。</p>
+{% endfor %}
+  </div>
+</div>
+</body>
+</html>

@@ -91,8 +91,8 @@ class TestMarkup(unittest.TestCase):
 
     def test_render_inline_tokens(self):
         out = build.render_inline("{{v:t1a|語}}{{g:t1b|文法}}{{k:970}}{{b:重要}}{{br}}")
-        self.assertIn('class="vocab-hl" data-tip="t1a"', out)
-        self.assertIn('class="grammar-hl" data-tip="t1b"', out)
+        self.assertIn('class="vocab-hl" role="button" tabindex="0" data-tip="t1a"', out)
+        self.assertIn('class="grammar-hl" role="button" tabindex="0" data-tip="t1b"', out)
         self.assertIn('<span class="keyword">970</span>', out)
         self.assertIn("<strong>重要</strong>", out)
         self.assertIn("<br>", out)
