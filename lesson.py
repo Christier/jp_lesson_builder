@@ -57,13 +57,13 @@ def cmd_nightly(a) -> int:
     if a.smoke:
         return nightly.smoke(P)
     return nightly.main(a.date, P, force=a.force, commit=a.commit, notify_=not a.no_notify,
-                        retries=a.retries, dry_run=a.dry_run)
+                        retries=a.retries, dry_run=a.dry_run, push=a.push)
 
 
 def cmd_schedule(a) -> int:
     import schedule
     if a.action == "install":
-        return schedule.install(P, a.time, commit=a.commit, wake=a.wake, visible=a.visible)
+        return schedule.install(P, a.time, commit=a.commit, wake=a.wake, visible=a.visible, push=a.push)
     if a.action == "status":
         return schedule.status(P)
     if a.action == "run":
@@ -265,6 +265,7 @@ def parser() -> argparse.ArgumentParser:
     p = add("nightly", cmd_nightly, "無人実行：取材〜記録まで Claude Code に任せて検証（DATE 省略時は正午前なら前日）")
     p.add_argument("--force", action="store_true", help="完成済みでも作り直す")
     p.add_argument("--commit", action="store_true", help="完成したら当日分を git commit")
+    p.add_argument("--push", action="store_true", help="完成したら当日分を commit して push（公開サイトを更新）")
     p.add_argument("--no-notify", action="store_true", help="トースト通知を出さない")
     p.add_argument("--retries", type=int, default=1, help="未完成のとき続きから再実行する回数（既定1）")
     p.add_argument("--dry-run", action="store_true", help="Claude を起動せず、実行内容だけ表示")
@@ -273,6 +274,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["install", "status", "run", "uninstall"])
     p.add_argument("--time", default="22:00", help="実行時刻 HH:MM（既定 22:00）")
     p.add_argument("--commit", action="store_true", help="完成したら git commit する")
+    p.add_argument("--push", action="store_true", help="完成したら commit して push する（公開サイトを毎日更新）")
     p.add_argument("--wake", action="store_true", help="スリープ中なら起こして実行する")
     p.add_argument("--visible", action="store_true", help="実行中のコンソール窓を表示する（既定は窓なし）")
     p = add("login", cmd_login, "Claude Code CLI にログイン（夜間実行の前に一度）", date=False)

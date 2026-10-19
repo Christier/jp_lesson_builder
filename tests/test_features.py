@@ -89,6 +89,9 @@ class TestFuriganaPipeline(ProjectCase):
         idx = (self.paths.dist / "index.html").read_text(encoding="utf-8")
         self.assertIn("N1%E6%97%A5%E8%AF%AD", idx)  # 日本語ファイル名は URL エンコード
         self.assertIn("最新", idx)
+        latest = (self.paths.dist / "latest.html").read_text(encoding="utf-8")
+        self.assertIn('url=N1%E6%97%A5%E8%AF%AD', latest)  # いちばん新しい教材へ飛ぶ
+        self.assertIn("location.replace", latest)
 
     def test_cross_lesson_dictionary(self):
         prev = self.sample()
@@ -342,6 +345,27 @@ class TestNightly(ProjectCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+    def test_commit_and_push(self):
+        import subprocess
+        def git(*a, cwd=self.tmp):
+            return subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True,
+                                  encoding="utf-8").stdout.strip()
+        remote = self.tmp.parent / (self.tmp.name + "-remote.git")
+        self.addCleanup(lambda: __import__("shutil").rmtree(remote, ignore_errors=True))
+        git("init", "--bare", "-b", "main", str(remote), cwd=self.tmp.parent)
+        git("init", "-b", "main")
+        git("config", "user.name", "test"); git("config", "user.email", "test@example.com")
+        git("add", "content", "data"); git("commit", "-m", "init")
+        git("remote", "add", "origin", str(remote))
+        git("push", "origin", "main")
+        self.assertEqual(self.run_nightly("complete", retries=0, push=True), 0)
+        msg = git("log", "-1", "--format=%s", "main", cwd=remote)
+        self.assertIn(f"lesson: {self.DATE}", msg)  # リモートに届いている
+        files = git("show", "--name-only", "--format=", "main", cwd=remote).splitlines()
+        self.assertEqual(sorted(files), sorted([f"content/{self.DATE}.json", "data/themes.json",
+                                                "data/vocab-index.json"]))  # 当日分だけ
+        self.assertIn("GitHub に反映", self.latest()["message"])
 
     def test_lock_prevents_double_run(self):
         self.paths.logs.mkdir(parents=True, exist_ok=True)

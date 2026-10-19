@@ -30,8 +30,11 @@ Windows の PowerShell からは `.\lesson.cmd` で呼ぶ（中身は同じ）�
 
 その他: `rebuild`（全教材の再ビルド＆検証）/ `doctor`（環境点検）/ `test`（自動テスト）/ `finish`（check→record）。
 
-毎晩22時の自動生成は `lesson schedule install` で登録済み（中身は `nightly.cmd` → `lesson nightly`）。
+毎晩22時の自動生成は `lesson schedule install --push` で登録済み（中身は `nightly.cmd` → `lesson nightly`）。
 無人実行のときは質問できないので、テーマ選びも含めて最後まで自分で判断して進めること。
+完成後の commit・push は nightly のスクリプトが行う（Claude は git push しない）。push されると
+GitHub Actions が全教材をビルドし直して公開サイト https://christier.github.io/jp_lesson_builder/ を更新する。
+**リポジトリも公開**なので、教材に個人情報や秘密を書かないこと。
 
 ## 教材の構成（3タブ固定）
 

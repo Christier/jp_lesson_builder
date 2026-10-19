@@ -1,0 +1,62 @@
+# 公開サイト（GitHub Pages）の更新。
+#
+# HTML は git に入れない（content/*.json が資産で、HTML はいつでも作り直せる）。
+# push のたびにここで全教材をビルドし直し、テストを通ったら dist/ を公開する。
+#
+#   https://christier.github.io/jp_lesson_builder/             教材一覧
+#   https://christier.github.io/jp_lesson_builder/latest.html  いちばん新しい教材
+#
+# 毎晩の自動生成（lesson nightly --push）が content を push すると、ここが動いてサイトが更新される。
+name: Pages（教材サイトの公開）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "content/**"
+      - "data/**"
+      - "templates/**"
+      - "build/**"
+      - "lesson.py"
+      - "requirements.txt"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 依存を入れる
+        run: pip install -r requirements.txt
+      - name: 全教材をビルドして検証（ERROR があれば公開しない）
+        run: python lesson.py rebuild
+      - name: 自動テスト
+        run: python lesson.py test
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

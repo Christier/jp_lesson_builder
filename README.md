@@ -2,6 +2,9 @@
 
 日本語N1教材（単一HTML）を Claude Code で毎日生成するためのプロジェクト。
 
+**公開サイト**：<https://christier.github.io/jp_lesson_builder/>（教材一覧）／
+<https://christier.github.io/jp_lesson_builder/latest.html>（いちばん新しい教材）
+
 対話のたびに手で組み立てていた教材を、**「調べる → JSONを書く → ビルド → 検証 → 記録」**の
 5工程に分解し、Claude Code に任せられる形にしたもの。Windows / macOS / Linux で同じコマンドが動く。
 
@@ -148,7 +151,7 @@ Claude Code で次を打つだけ:
 
 | コマンド | 内容 |
 |---|---|
-| `schedule install [--time 22:00] [--commit] [--wake] [--visible]` | 登録（`--commit`：完成したら当日分だけ git commit／`--wake`：スリープから起こす／`--visible`：実行中の窓を出す） |
+| `schedule install [--time 22:00] [--commit] [--push] [--wake] [--visible]` | 登録（`--commit`：完成したら当日分だけ git commit／`--push`：さらに push して公開サイトを更新／`--wake`：スリープから起こす／`--visible`：実行中の窓を出す） |
 | `schedule status` | 次回の実行時刻と、直近の生成結果（`logs/latest.json`） |
 | `schedule run` | 登録したタスクを今すぐ実行 |
 | `schedule uninstall` | 登録を削除 |
@@ -159,6 +162,23 @@ Claude Code で次を打つだけ:
 - 無人実行で Claude に許すのは `./lesson.sh`・読み取り系コマンド・ファイル編集・Web検索だけ（`rm`・`git push` などは禁止）
 - PC がログオンしていないと実行されない（パスワードを保存しないため）。22時にスリープしていた場合は、次に起きたときに実行される
 - 使うモデルを固定したいときは環境変数 `LESSON_NIGHTLY_MODEL`、claude の場所が特殊なら `CLAUDE_BIN`
+
+### 公開サイト（GitHub Pages）
+
+```
+毎晩 22:00  lesson nightly --push ──→ 当日の content・data だけ commit して GitHub に push
+                                          │
+GitHub Actions（.github/workflows/pages.yml）
+  全教材をビルド → 検証（ERROR があれば公開しない）→ 自動テスト → dist/ を Pages に公開
+```
+
+- 一覧：`https://christier.github.io/jp_lesson_builder/`、最新：`…/latest.html`（ブックマーク推奨）
+- HTML は git に入れない。push された `content/*.json` から Actions が毎回作り直す
+- テンプレートやビルドを直して push した場合も、全教材が新しい見た目で作り直される
+- 手動で公開し直すときは GitHub の Actions タブ →「Pages（教材サイトの公開）」→ Run workflow
+- push は検証を済ませた `nightly.py` が行う。Claude 自身には push を許していない
+  （`.claude/settings.json` の deny と、無人実行時の `--disallowedTools`）
+- 公開リポジトリなので、教材（ニュースの要約・引用を含む）とコミット履歴は誰でも見られる
 
 ---
 
@@ -198,6 +218,8 @@ jp_lesson_builder/
 ├── lesson.cmd             Windows 用ランチャー（.venv → py → python の順に探す）
 ├── lesson.sh              macOS / Linux / Git Bash 用ランチャー
 ├── nightly.cmd            夜間の自動生成（タスクスケジューラから実行。ダブルクリックで今すぐ実行）
+├── .github/workflows/
+│   └── pages.yml          push のたびに全教材をビルドして GitHub Pages に公開
 ├── Makefile               macOS / Linux 向けの薄いラッパー
 ├── requirements.txt       Jinja2
 ├── .claude/
@@ -329,6 +351,8 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 | 夜間実行が「別の nightly が実行中です」 | 本当に動いていなければ `logs/nightly.lock` を削除（6時間たてば自動で外れる） |
 | 夜間実行で教材が完成しなかった | `logs/<日付>-nightly.log` に未完成の理由（validate の ERROR）がある。`.\lesson.cmd nightly <日付>` で続きから再実行できる |
 | ログに `Failed to refresh OAuth token: another Claude Code process is refreshing it…` | ちょうどトークンの更新時刻に、別の Claude Code（デスクトップアプリ等）と更新がぶつかった一時的なエラー。nightly は 1→2→5→10 分の間隔で自動的に再試行し、10分以上残った更新ロック（`%USERPROFILE%\.claude\.oauth_refresh.lock`）も外す。それでも続くときは `.\lesson.cmd login --force` |
+| 夜間実行のログに「push できませんでした」 | 教材はローカルに完成している。PowerShell で `git push` を一度手動で実行（Git Credential Manager に資格情報が保存され、次回から自動で通る） |
+| 公開サイトが更新されない | GitHub の Actions タブで「Pages（教材サイトの公開）」の結果を見る（validate の ERROR やテスト失敗のときは公開しない） |
 | タスクスケジューラの「前回の結果」が 0 なのに失敗している | 窓なし起動（conhost --headless）は終了コードを返さない。本当の結果は `lesson schedule status` の「直近の実行」を見る |
 | 振り仮名が長い範囲に付いてしまう | 《》は直前の漢字の連なり全体に付く。`大阪府｜箕面《みのお》市` のように ｜ で範囲を指定（validate が WARN で教える） |
 | TTSが鳴らない／途中で止まる | Chrome か Edge で開く（Edge の「Natural」音声が自然）。長文は文単位で順に読むので途中停止は起きにくい。止まったら再読み込み |
