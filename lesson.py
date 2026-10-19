@@ -3,6 +3,7 @@
 lesson.py — jp-lesson-builder の統一コマンド（Windows / macOS / Linux 共通）。
 
     lesson new      [DATE]   雛形 content/<DATE>.json を作る
+    lesson merge    [DATE]   drafts/<DATE>/*.json（分割した下書き）を content に結合
     lesson build    [DATE]   JSON → dist/N1日语学习-<和暦>.html
     lesson validate [DATE]   入力JSONと出力HTMLを検証
     lesson check    [DATE]   build → validate（執筆中はこれを繰り返す）
@@ -11,7 +12,10 @@ lesson.py — jp-lesson-builder の統一コマンド（Windows / macOS / Linux 
     lesson open     [DATE]   生成HTMLをブラウザで開く
     lesson rebuild           content/*.json を全部ビルド＆検証（テンプレート改修後の回帰確認）
     lesson review   [DATE]   語彙の復習レポート（--save で notes/ に保存）
+    lesson nightly  [DATE]   無人実行：Claude Code に取材〜記録まで任せ、結果を検証（nightly.cmd の中身）
+    lesson schedule install|status|run|uninstall   毎晩の自動実行（タスクスケジューラ）
     lesson doctor            実行環境の点検
+    lesson login             Claude Code CLI にログイン（PATH に claude が無くても動く。夜間実行の前に一度）
     lesson setup             .venv を作って依存を入れる
     lesson test              自動テストを実行
 
@@ -40,6 +44,31 @@ def cmd_new(a) -> int:
     import new_content
     new_content.main(a.date, P)
     return 0
+
+
+def cmd_merge(a) -> int:
+    import drafts
+    drafts.main(_date(a), a.files or None, P)
+    return 0
+
+
+def cmd_nightly(a) -> int:
+    import nightly
+    if a.smoke:
+        return nightly.smoke(P)
+    return nightly.main(a.date, P, force=a.force, commit=a.commit, notify_=not a.no_notify,
+                        retries=a.retries, dry_run=a.dry_run)
+
+
+def cmd_schedule(a) -> int:
+    import schedule
+    if a.action == "install":
+        return schedule.install(P, a.time, commit=a.commit, wake=a.wake, visible=a.visible)
+    if a.action == "status":
+        return schedule.status(P)
+    if a.action == "run":
+        return schedule.run_now()
+    return schedule.uninstall()
 
 
 def cmd_build(a) -> int:
@@ -127,6 +156,21 @@ def cmd_review(a) -> int:
     return 0
 
 
+def cmd_login(a) -> int:
+    import nightly
+    claude = nightly.find_claude()
+    if not claude:
+        raise UserError("claude（Claude Code CLI）が見つかりません。https://claude.com/claude-code の手順でインストールしてください")
+    if nightly.claude_logged_in(claude) and not a.force:
+        print(f"[login] ログイン済みです（{claude}）。やり直すときは --force")
+        return 0
+    print(f"[login] {claude} auth login を実行します（ブラウザが開きます）", flush=True)
+    subprocess.run([claude, "auth", "login"])
+    ok = nightly.claude_logged_in(claude)
+    print(f"[login] {'ログインできました。次: lesson nightly --smoke' if ok else 'まだログインできていません'}")
+    return 0 if ok else 1
+
+
 def cmd_doctor(a) -> int:
     ok = True
     print(f"Python  : {sys.version.split()[0]}  ({sys.executable})")
@@ -156,6 +200,13 @@ def cmd_doctor(a) -> int:
         ok &= exists
     n = len(list(P.content.glob("*.json")))
     print(f"content : {n}件")
+    import nightly
+    claude = nightly.find_claude()
+    if not claude:
+        print("claude  : 見つかりません（夜間の自動生成には Claude Code CLI が必要）")
+    else:
+        li = nightly.claude_logged_in(claude)
+        print(f"claude  : {claude}（{'ログイン済み' if li else '未ログイン → lesson login' if li is False else 'ログイン状態不明'}）")
     print("\n[doctor] " + ("問題なし" if ok else "要対応の項目があります"))
     return 0 if ok else 1
 
@@ -197,6 +248,8 @@ def parser() -> argparse.ArgumentParser:
         return p
 
     add("new", cmd_new, "雛形 content/<DATE>.json を作る")
+    p = add("merge", cmd_merge, "drafts/<DATE>/*.json を content に結合")
+    p.add_argument("files", nargs="*", help="結合するファイル（省略時は drafts/<DATE>/*.json）")
     add("build", cmd_build, "JSON → HTML")
     add("validate", cmd_validate, "入力JSONと出力HTMLを検証")
     add("check", cmd_check, "build → validate")
@@ -209,6 +262,21 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("-v", "--verbose", action="store_true")
     p = add("review", cmd_review, "語彙の復習レポート")
     p.add_argument("--save", action="store_true", help="notes/review-<DATE>.md に保存")
+    p = add("nightly", cmd_nightly, "無人実行：取材〜記録まで Claude Code に任せて検証（DATE 省略時は正午前なら前日）")
+    p.add_argument("--force", action="store_true", help="完成済みでも作り直す")
+    p.add_argument("--commit", action="store_true", help="完成したら当日分を git commit")
+    p.add_argument("--no-notify", action="store_true", help="トースト通知を出さない")
+    p.add_argument("--retries", type=int, default=1, help="未完成のとき続きから再実行する回数（既定1）")
+    p.add_argument("--dry-run", action="store_true", help="Claude を起動せず、実行内容だけ表示")
+    p.add_argument("--smoke", action="store_true", help="Claude Code を非対話で起動できるかだけ確認")
+    p = add("schedule", cmd_schedule, "毎晩の自動実行（Windows タスクスケジューラ）", date=False)
+    p.add_argument("action", choices=["install", "status", "run", "uninstall"])
+    p.add_argument("--time", default="22:00", help="実行時刻 HH:MM（既定 22:00）")
+    p.add_argument("--commit", action="store_true", help="完成したら git commit する")
+    p.add_argument("--wake", action="store_true", help="スリープ中なら起こして実行する")
+    p.add_argument("--visible", action="store_true", help="実行中のコンソール窓を表示する（既定は窓なし）")
+    p = add("login", cmd_login, "Claude Code CLI にログイン（夜間実行の前に一度）", date=False)
+    p.add_argument("--force", action="store_true", help="ログイン済みでもやり直す")
     add("doctor", cmd_doctor, "実行環境の点検", date=False)
     add("setup", cmd_setup, ".venv を作って依存を入れる", date=False)
     p = add("test", cmd_test, "自動テストを実行", date=False)

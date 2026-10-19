@@ -9,6 +9,7 @@ common.py — build / validate / new_content / record が共有する部品。
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -52,6 +53,14 @@ class Paths:
     @property
     def notes(self) -> Path:
         return self.root / "notes"
+
+    @property
+    def drafts(self) -> Path:
+        return self.root / "drafts"
+
+    @property
+    def logs(self) -> Path:
+        return self.root / "logs"
 
     def content_file(self, date: str) -> Path:
         return self.content / f"{date}.json"
@@ -126,9 +135,69 @@ def write_json(path: Path, obj) -> None:
     write_text_atomic(path, json.dumps(obj, ensure_ascii=False, indent=2) + "\n")
 
 
+# ---------------------------------------------------------------- 振り仮名（ルビ）
+#   青空文庫と同じ記法。どのテキストフィールドでも使える。
+#     箕面《みのお》市            … 《》の直前の「漢字の連なり」にルビ
+#     ｜SpeeCAN《スピーキャン》   … 全角｜〜《》で範囲を明示（漢字以外・漢字の途中から）
+KANJI = "㐀-䶿一-鿿豈-﫿々〆ヵヶ"
+RUBY = re.compile(rf"(?:｜([^｜《》\n]+?)|([{KANJI}]+))《([^《》\n]+)》")
+KANJI_RUN = re.compile(rf"[{KANJI}]+")
+READING_OK = re.compile(r"^[ぁ-ゖァ-ヺー・ゝゞヽヾ]+$")
+
+
+def kata2hira(s: str) -> str:
+    return "".join(chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch for ch in s)
+
+
+def ruby_tag(base: str, reading: str, cls: str) -> str:
+    """base / reading はエスケープ済みであること"""
+    return f'<ruby class="{cls}">{base}<rp>（</rp><rt>{reading}</rt><rp>）</rp></ruby>'
+
+
+def render_ruby(text: str, escape: bool = True) -> str:
+    """ルビ記法 → <ruby>。escape=True ならそれ以外の文字をHTMLエスケープする。"""
+    esc = html.escape if escape else (lambda s: s)
+    out, pos = [], 0
+    for m in RUBY.finditer(text):
+        out.append(esc(text[pos:m.start()]))
+        base = m.group(1) or m.group(2)
+        out.append(ruby_tag(esc(base), esc(m.group(3)), "rb-x"))
+        pos = m.end()
+    out.append(esc(text[pos:]))
+    return "".join(out)
+
+
+def align_reading(head: str, reading: str) -> list[tuple[str, str]] | None:
+    """見出し語と読みを、漢字の連なりごとに対応づける。
+
+    align_reading("浮き彫り", "うきぼり") → [("浮", "う"), ("彫", "ぼ")]
+    align_reading("〜を果たす", "はたす")  → [("果", "は")]   （先頭の「〜を」は外して再試行）
+    対応がつかなければ None。
+    """
+    head = re.sub(r"[〜~\s]", "", head)
+    reading = kata2hira(re.sub(r"\s", "", reading))
+    if not head or not READING_OK.match(reading):
+        return None
+    starts = [0] + [m.start() for m in KANJI_RUN.finditer(head) if m.start() > 0]
+    for st in starts:
+        parts = re.findall(rf"[{KANJI}]+|[^{KANJI}]+", head[st:])
+        kanji = [p for p in parts if KANJI_RUN.fullmatch(p)]
+        if not kanji:
+            return None
+        pattern = "".join("(.+?)" if KANJI_RUN.fullmatch(p) else re.escape(kata2hira(p)) for p in parts)
+        m = re.fullmatch(pattern, reading)
+        if m:
+            return list(zip(kanji, m.groups()))
+    return None
+
+
 # ---------------------------------------------------------------- マークアップ
-def strip_markup(text: str) -> str:
-    """マークアップとHTMLタグを除いた素のテキスト（字数計測・TTS用）"""
+def strip_markup(text: str, speech: bool = False) -> str:
+    """マークアップ・ルビ・HTMLタグを除いた素のテキスト。
+
+    speech=False … 字数計測用（ルビは親文字を残す）
+    speech=True  … 読み上げ用（ルビは読みに置き換える。固有名詞の誤読を防ぐ）
+    """
     def repl(m: re.Match) -> str:
         kind, a, b = m.group(1), m.group(2), m.group(3)
         if kind == "br":
@@ -137,4 +206,5 @@ def strip_markup(text: str) -> str:
             return b if b is not None else (a or "")
         return a or ""
     s = TOKEN.sub(repl, text)
+    s = RUBY.sub(lambda m: m.group(3) if speech else (m.group(1) or m.group(2)), s)
     return re.sub(r"<[^>]+>", "", s)

@@ -51,7 +51,7 @@ cd ~/projects/jp_lesson_builder
 ### 1-3. 動作確認
 
 ```powershell
-.\lesson.cmd test                  # 自動テスト（43件）
+.\lesson.cmd test                  # 自動テスト（65件）
 .\lesson.cmd check 2026-09-19      # サンプルをビルド＆検証
 .\lesson.cmd open 2026-09-19       # ブラウザで開く
 ```
@@ -61,6 +61,21 @@ cd ~/projects/jp_lesson_builder
 ### 1-4. Claude Code を起動
 
 プロジェクトのルートで `claude` を起動する。`CLAUDE.md` は自動で読み込まれる。
+
+### 1-5. 毎晩22時の自動生成を有効にする（任意）
+
+夜間の自動生成は、Claude Code の **CLI** を非対話モードで起動して行う。
+デスクトップアプリのログインは CLI には引き継がれないので、最初に一度だけ CLI でログインする。
+（CLI の `claude.exe` は `%USERPROFILE%\.local\bin` に入るが PATH に無いことがあるので、`lesson login` 経由で呼ぶ）
+
+```powershell
+.\lesson.cmd login                       # ブラウザでログイン（初回のみ）
+.\lesson.cmd nightly --smoke             # 非対話で起動し、./lesson.sh を実行できるか確認 → OK
+.\lesson.cmd schedule install --time 22:00
+.\lesson.cmd schedule status             # 次回の実行時刻・直近の結果
+```
+
+詳しくは「4. 毎晩の自動生成」。
 
 ---
 
@@ -76,7 +91,7 @@ Claude Code で次を打つだけ:
 
 1. `data/themes.json` と `lesson review` で既出テーマ・再登場させたい語彙を把握
 2. WebSearch で対象日の実際のニュースを取材（分野を散らして3本＋見出し5本）
-3. `lesson new` で雛形を作り、`content/<日付>.json` を執筆
+3. `lesson new` で雛形を作り、`drafts/<日付>/` に news・scene・ext を分けて書いて `lesson merge` で結合
 4. `lesson check`（build → validate）。ERROR が出たら自分で直して再実行
 5. `lesson record` で `data/themes.json` と `data/vocab-index.json` を自動更新
 6. 生成内容を日本語で報告
@@ -99,7 +114,55 @@ Claude Code で次を打つだけ:
 
 ---
 
-## 3. lesson コマンド一覧
+## 3. 教材ページの使い方
+
+| 機能 | 使い方 |
+|---|---|
+| ニュースの目次 | ニュースタブ冒頭のカード。分野・読了目安・字数・重要語数が分かり、クリックで記事へ |
+| 振り仮名 | 重要語・難読語・固有名詞に付く。上部バーの「ふりがな」で **表示 → タップで表示 → 非表示** を切り替え（「タップで表示」は読みを隠して自分で読む練習用） |
+| 解説ポップアップ | ハイライト語をクリック（Tab で選んで Enter でも可）すると、その語のすぐ下に解説。🔊で発音。Esc／外側クリックで閉じる。スマホでは画面下から出る |
+| 段落ごとの読み上げ | 各段落の左の ▶。全文再生中は読んでいる段落に色が付く。本文に書いた振り仮名（固有名詞など）は読みのほうで読み上げる |
+| ハイライト非表示 | 素の文章で読む練習用 |
+| 中文をぼかす | 会話・見出しの中国語訳をぼかし、タップしたものだけ表示（自分で訳してから確認） |
+| 文字サイズ | A−／A＋（0.85〜1.5倍） |
+| 語彙カードの🔊 | その語を読み上げる |
+| メモ欄 | ブラウザに自動保存（教材の日付ごと） |
+| 印刷 | 解説をすべて展開した学習シートになる（タブ・ボタン類は印刷されない） |
+| 教材一覧 | `dist/index.html`。ビルドのたびに更新される。ブックマークしておくと便利 |
+
+設定（ふりがな・文字サイズなど）はブラウザに保存され、次に開いた教材にも引き継がれる。
+
+---
+
+## 4. 毎晩の自動生成（タスクスケジューラ）
+
+```
+タスクスケジューラ（毎日 22:00）
+  └ conhost --headless → nightly.cmd → lesson nightly
+        1. 対象日を決める（正午より前に動いたら前日分＝取りこぼし分）
+        2. 完成済みなら何もしない
+        3. claude -p（非対話）に /lesson の手順で取材〜記録まで任せる
+        4. 自分で build → validate し直し、記録も確認（未完成なら「続きから」で1回再実行）
+        5. logs/ に記録し、トースト通知（クリックで教材が開く）
+```
+
+| コマンド | 内容 |
+|---|---|
+| `schedule install [--time 22:00] [--commit] [--wake] [--visible]` | 登録（`--commit`：完成したら当日分だけ git commit／`--wake`：スリープから起こす／`--visible`：実行中の窓を出す） |
+| `schedule status` | 次回の実行時刻と、直近の生成結果（`logs/latest.json`） |
+| `schedule run` | 登録したタスクを今すぐ実行 |
+| `schedule uninstall` | 登録を削除 |
+| `nightly [DATE] [--force] [--dry-run]` | 夜間処理を手動で実行（`nightly.cmd` をダブルクリックしても同じ）。`--dry-run` は Claude を起動せず内容だけ表示 |
+| `nightly --smoke` | Claude Code CLI を非対話で起動できるかだけ確認（数秒・教材は作らない） |
+
+- ログ：`logs/<日付>-nightly.log`（進み具合と Claude の最終報告）、`logs/<日付>-claude.jsonl`（全やりとり）、`logs/latest.json`（直近の結果）
+- 無人実行で Claude に許すのは `./lesson.sh`・読み取り系コマンド・ファイル編集・Web検索だけ（`rm`・`git push` などは禁止）
+- PC がログオンしていないと実行されない（パスワードを保存しないため）。22時にスリープしていた場合は、次に起きたときに実行される
+- 使うモデルを固定したいときは環境変数 `LESSON_NIGHTLY_MODEL`、claude の場所が特殊なら `CLAUDE_BIN`
+
+---
+
+## 5. lesson コマンド一覧
 
 Windows は `.\lesson.cmd <コマンド>`（PowerShell なら `.\lesson` でも可）、
 macOS / Linux / Git Bash は `./lesson.sh <コマンド>`、`make <コマンド> DATE=...` でも同じ。
@@ -108,6 +171,7 @@ macOS / Linux / Git Bash は `./lesson.sh <コマンド>`、`make <コマンド>
 | コマンド | 内容 |
 |---|---|
 | `new [DATE]` | 雛形 `content/<DATE>.json` を作る（ニュース3本分の枠つき・配色自動選択・既存ファイルは上書きしない） |
+| `merge [DATE] [FILES…]` | `drafts/<DATE>/*.json`（分割した下書き）を content に結合（トップレベルのキーごとに浅く上書き） |
 | `build [DATE]` | JSON → `dist/N1日语学习-<和暦>.html` |
 | `validate [DATE]` | 入力JSONと出力HTMLを検証（ERROR があれば終了コード 1） |
 | `check [DATE]` | build → validate（執筆中はこれを繰り返す） |
@@ -116,13 +180,15 @@ macOS / Linux / Git Bash は `./lesson.sh <コマンド>`、`make <コマンド>
 | `open [DATE]` | 生成HTMLを既定のブラウザで開く |
 | `rebuild` | `content/*.json` を全部ビルド＆検証（テンプレート改修後の回帰確認） |
 | `review [DATE] [--save]` | 語彙の復習レポート（定着候補／要再訪／一度きり／記録漏れ） |
-| `doctor` | Python・Jinja2・データファイルの点検 |
+| `nightly` / `schedule` | 毎晩の自動生成（「4. 毎晩の自動生成」） |
+| `login [--force]` | Claude Code CLI にログイン（`claude.exe` を自動で探すので PATH 不要。夜間実行の前に一度） |
+| `doctor` | Python・Jinja2・データファイル・Claude Code CLI（ログイン状態）の点検 |
 | `setup` | `.venv` を作って依存を入れる |
 | `test [-v]` | 自動テスト（固定 fixture で動作検証＋本物の全教材が ERROR 0 でビルドできるかの回帰確認。本物の content/data/dist は書き換えない） |
 
 ---
 
-## 4. ディレクトリ構成
+## 6. ディレクトリ構成
 
 ```
 jp_lesson_builder/
@@ -131,6 +197,7 @@ jp_lesson_builder/
 ├── lesson.py              ★ 統一コマンド（new / build / validate / record …）
 ├── lesson.cmd             Windows 用ランチャー（.venv → py → python の順に探す）
 ├── lesson.sh              macOS / Linux / Git Bash 用ランチャー
+├── nightly.cmd            夜間の自動生成（タスクスケジューラから実行。ダブルクリックで今すぐ実行）
 ├── Makefile               macOS / Linux 向けの薄いラッパー
 ├── requirements.txt       Jinja2
 ├── .claude/
@@ -141,15 +208,19 @@ jp_lesson_builder/
 │       └── review.md      /review — 過去教材の横断復習
 ├── templates/
 │   ├── base.html.j2       HTML骨格（3タブ構成）
-│   ├── styles.css.j2      CSS（配色はパレット変数で切替）
-│   └── app.js             タブ・ツールチップ・TTS（文単位で読み上げ）・メモ自動保存
+│   ├── styles.css.j2      CSS（配色はパレット変数で切替・スマホ対応・印刷用）
+│   ├── app.js             タブ・解説ポップアップ・振り仮名切替・TTS（段落単位）・設定とメモの保存
+│   └── index.html.j2      教材一覧ページ
 ├── build/
 │   ├── common.py          共通部品（パス・日付・UTF-8出力・アトミック書き込み）
 │   ├── new_content.py     当日分JSONの雛形を作る
 │   ├── build.py           JSON → HTML
 │   ├── validate.py        JSONと出力HTMLを検証
 │   ├── record.py          data/ への記録
-│   └── review.py          語彙の復習レポート
+│   ├── review.py          語彙の復習レポート
+│   ├── drafts.py          分割した下書きの結合（lesson merge）
+│   ├── nightly.py         夜間の無人実行（lesson nightly）
+│   └── schedule.py        タスクスケジューラへの登録（lesson schedule）
 ├── tests/                 自動テスト（unittest）
 │   └── fixtures/data/     テスト用に凍結した themes.json・vocab-index.json（日々の record の影響を受けない）
 ├── content/               日ごとの教材データ（JSON）＝ここが資産
@@ -158,12 +229,15 @@ jp_lesson_builder/
 │   ├── themes.json        会話テーマ使用履歴＋候補リスト
 │   └── vocab-index.json   既出語彙インデックス（復習リンク用）
 ├── notes/                 /news や /review の出力先
-└── dist/                  生成されたHTML（使い捨て。いつでも再生成できる）
+├── drafts/                執筆中の下書き（git 管理外）
+├── logs/                  夜間実行のログ（git 管理外）
+├── tmp/                   改修前のバックアップ zip（git 管理外）
+└── dist/                  生成されたHTML（使い捨て。いつでも再生成できる）＋ index.html（一覧）
 ```
 
 ---
 
-## 5. 本文マークアップ（JSONの中で使う記法）
+## 7. 本文マークアップ（JSONの中で使う記法）
 
 生HTMLを書かせないための軽量記法。ニュースの `paragraphs` と会話の `jp` で使う。
 
@@ -174,6 +248,12 @@ jp_lesson_builder/
 | `{{k:970}}` | キーワード強調 | ○ |
 | `{{b:重要}}` | 太字 | ○ |
 | `{{br}}` | 改行 | ○ |
+| `箕面《みのお》市` | 振り仮名（《》の直前の漢字の連なりに付く） | ○ |
+| `大阪府｜箕面《みのお》市` | 振り仮名の範囲を全角 ｜ で指定 | ○ |
+
+**振り仮名の付き方**：ハイライト語は、ツールチップの先頭 `<strong>緊迫（きんぱく）</strong>` から自動で付く
+（活用したラベル「膨らみ」にも語幹に付く）。過去の教材で読みを書いた2字以上の語も自動で付く。
+それ以外の難読語・固有名詞は本文に《》で書く。振り仮名はどのフィールドでも使える。
 
 それ以外の文字は自動でHTMLエスケープされるので、`<` や `&` を書いても壊れない。
 
@@ -185,7 +265,7 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 
 ---
 
-## 6. 検証で出るチェック項目
+## 8. 検証で出るチェック項目
 
 **ERROR（教材として壊れている。必ず直す）**
 - JSONが壊れている／必須キーがない／型が違う
@@ -212,7 +292,7 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 
 ---
 
-## 7. 配色パレット
+## 9. 配色パレット
 
 `data/palettes.json` に8種類。`lesson new` が「一番長く使っていないもの」を自動選択する。
 
@@ -222,7 +302,7 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 
 ---
 
-## 8. 運用のコツ
+## 10. 運用のコツ
 
 - **`content/*.json` が本当の資産。** HTMLは使い捨て。テンプレートを改善したら
   `lesson rebuild` で過去の全教材が新デザインで作り直せ、同時に全件検証される。
@@ -234,7 +314,7 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 
 ---
 
-## 9. よくあるトラブル
+## 11. よくあるトラブル
 
 | 症状 | 対処 |
 |---|---|
@@ -244,5 +324,12 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 | `JSONの構造が不足・不正なため…` | `lesson validate <日付>` が原因箇所を教えてくれる |
 | `JSONがHTMLより新しくなっています` | `lesson check <日付>`（build してから validate） |
 | `make: command not found`（Windows） | make は不要。`.\lesson.cmd <コマンド>` を使う |
+| 夜間実行が「Claude Code（CLI）にログインしていません」で失敗 | `.\lesson.cmd login` を一度実行し、`.\lesson.cmd nightly --smoke` で OK を確認 |
+| `claude : 用語 'claude' は、コマンドレット…として認識されません` | `claude.exe` が PATH に無い（`%USERPROFILE%\.local\bin`）。`.\lesson.cmd login` を使えば PATH は不要 |
+| 夜間実行が「別の nightly が実行中です」 | 本当に動いていなければ `logs/nightly.lock` を削除（6時間たてば自動で外れる） |
+| 夜間実行で教材が完成しなかった | `logs/<日付>-nightly.log` に未完成の理由（validate の ERROR）がある。`.\lesson.cmd nightly <日付>` で続きから再実行できる |
+| ログに `Failed to refresh OAuth token: another Claude Code process is refreshing it…` | ちょうどトークンの更新時刻に、別の Claude Code（デスクトップアプリ等）と更新がぶつかった一時的なエラー。nightly は 1→2→5→10 分の間隔で自動的に再試行し、10分以上残った更新ロック（`%USERPROFILE%\.claude\.oauth_refresh.lock`）も外す。それでも続くときは `.\lesson.cmd login --force` |
+| タスクスケジューラの「前回の結果」が 0 なのに失敗している | 窓なし起動（conhost --headless）は終了コードを返さない。本当の結果は `lesson schedule status` の「直近の実行」を見る |
+| 振り仮名が長い範囲に付いてしまう | 《》は直前の漢字の連なり全体に付く。`大阪府｜箕面《みのお》市` のように ｜ で範囲を指定（validate が WARN で教える） |
 | TTSが鳴らない／途中で止まる | Chrome か Edge で開く（Edge の「Natural」音声が自然）。長文は文単位で順に読むので途中停止は起きにくい。止まったら再読み込み |
 | Claude Code が CLAUDE.md を読んでいない | プロジェクトのルートで `claude` を起動しているか確認。`/memory` で確認できる |

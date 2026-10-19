@@ -21,8 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import (  # noqa: E402
-    DEFAULT_PATHS, TIP_ID, TOKEN, Paths, UserError, date_jp, load_json, parse_date,
-    setup_stdio, strip_markup, weekday_jp,
+    DEFAULT_PATHS, READING_OK, RUBY, TIP_ID, TOKEN, Paths, UserError, date_jp, load_json,
+    parse_date, setup_stdio, strip_markup, weekday_jp,
 )
 from new_content import PLACEHOLDERS  # noqa: E402
 
@@ -214,7 +214,7 @@ def check_json(r: Report, date: str, paths: Paths) -> dict:
     try:
         _check_meta(r, c, date, paths)
         _check_strings(r, c)
-        _check_news(r, c)
+        _check_news(r, c, paths)
         _check_scene(r, c)
         _check_ext(r, c)
         _check_index(r, c, date, paths)
@@ -280,8 +280,31 @@ def _check_meta(r: Report, c: dict, date: str, paths: Paths) -> None:
             r.warn(f"会話テーマ '{key}' は {u.get('date')} に使用済みの可能性があります（{t}）")
 
 
+def check_ruby(r: Report, path: str, s: str) -> int:
+    """振り仮名の記法を検査し、ルビの数を返す"""
+    if "《" not in s and "》" not in s and "｜" not in s:
+        return 0
+    n = 0
+    for m in RUBY.finditer(s):
+        n += 1
+        base, reading = m.group(1) or m.group(2), m.group(3)
+        if not READING_OK.match(reading):
+            r.warn(f"{path}: 振り仮名『{base}《{reading}》』の読みに、かな以外の文字があります")
+        if m.group(2) and len(base) > len(reading):
+            r.warn(f"{path}: 振り仮名の親文字『{base}』が長すぎる可能性があります"
+                   f"（《》は直前の漢字の連なり全体に付く。範囲は ｜ で指定：例 大阪府｜箕面《みのお》市）")
+    rest = RUBY.sub("", s)
+    if "《" in rest or "》" in rest:
+        i = max(rest.find("《"), rest.find("》"))
+        r.err(f"{path}: 振り仮名の記法が不正です → …{rest[max(0, i - 8):i + 8]}…"
+              "（漢字《よみ》／｜文字列《よみ》の形で書く）")
+    elif "｜" in rest:
+        r.warn(f"{path}: 《よみ》が続かない ｜ があります（振り仮名の範囲指定なら ｜文字列《よみ》）")
+    return n
+
+
 def _check_strings(r: Report, c: dict) -> None:
-    """全文字列フィールドの横断チェック：プレースホルダー残り・生HTML・SVG"""
+    """全文字列フィールドの横断チェック：プレースホルダー残り・生HTML・SVG・振り仮名"""
     leftovers: list[str] = []
     for path, s in _walk(c):
         if any(p in s for p in PLACEHOLDERS) or re.search(r"YYYY年", s):
@@ -289,6 +312,7 @@ def _check_strings(r: Report, c: dict) -> None:
         if path.endswith(".svg") and ".illustrations[" in path:
             check_svg(r, path, s)
             continue
+        check_ruby(r, path, s)
         if re.search(r"\.paragraphs\[\d+\]$", path) or re.search(r"\.turns\[\d+\]\.jp$", path):
             if re.search(r"</?[a-zA-Z][^>]*>", s):
                 r.warn(f"{path}: 本文・セリフに生HTMLがあります（エスケープされ、タグがそのまま表示されます）。"
@@ -309,7 +333,7 @@ def _check_markup(r: Report, where: str, text: str) -> None:
               "（使えるのは {{v:id|語}} {{g:id|語}} {{k:語}} {{b:語}} {{br}}）")
 
 
-def _check_news(r: Report, c: dict) -> None:
+def _check_news(r: Report, c: dict, paths: Paths = DEFAULT_PATHS) -> None:
     news = c["news"]
     _type_check(r, news, "heading", str, "news")
     _type_check(r, news, "articles", list, "news")
@@ -392,6 +416,18 @@ def _check_news(r: Report, c: dict) -> None:
     dup = sorted(k for k, n in tip_count.items() if n > 1)
     if dup:
         r.err(f"ツールチップIDが重複しています（ファイル全体で一意に）→ {dup}")
+
+    # --- 振り仮名：ハイライト語で読みが付かないもの（ツールチップに「語（よみ）」がなく、過去教材にもない）
+    try:
+        from build import missing_readings, reading_dictionary
+        gdict = reading_dictionary(paths, extra=c)
+        for i, a in enumerate(arts, 1):
+            miss = missing_readings(a, gdict) if isinstance(a, dict) else []
+            if miss:
+                r.info(f"ニュース{i}: 振り仮名が付かない（一部を含む）ハイライト語 → {'、'.join(miss)}"
+                       "（ツールチップを <strong>語（よみ）</strong> で始めるか、本文に 語《よみ》 と書く）")
+    except Exception as e:  # 振り仮名の集計で検証全体を止めない
+        r.info(f"振り仮名の集計をスキップしました（{type(e).__name__}: {e}）")
 
     heads = _l(news.get("headlines"))
     if len(heads) < HEADLINES_MIN:
