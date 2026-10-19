@@ -2,7 +2,7 @@
 """
 nightly.py — 毎晩の自動生成（無人実行）。タスクスケジューラから nightly.cmd 経由で呼ばれる。
 
-    lesson nightly [DATE] [--force] [--commit] [--no-notify] [--retries N] [--dry-run]
+    lesson nightly [DATE] [--force] [--commit] [--push] [--no-notify] [--retries N] [--dry-run]
     lesson nightly --smoke      Claude Code を非対話で起動できるかだけ確かめる（教材は作らない）
 
 流れ:
@@ -12,7 +12,8 @@ nightly.py — 毎晩の自動生成（無人実行）。タスクスケジュ�
   3. Claude Code（claude -p）を非対話で起動し、.claude/commands/lesson.md の手順で作らせる
   4. 終わったら自分で build → validate し直し、記録も確認する（Claude の自己申告を信用しない）。
      未完成なら「続きから」でもう一度起動する（--retries、既定1回）
-  5. 結果を logs/ に残し、Windows ならトースト通知を出す。--commit なら当日分だけ git commit
+  5. 結果を logs/ に残し、Windows ならトースト通知を出す。--commit なら当日分だけ git commit、
+     --push ならさらに push（GitHub Actions が公開サイトを作り直す）
 
 環境変数:
   CLAUDE_BIN              claude の実行ファイル（既定：PATH → ~/.local/bin/claude(.exe) → npm）
@@ -314,11 +315,12 @@ def notify(title: str, body: str, open_path: str = "") -> bool:
         return False
 
 
-def git_commit(date: str, theme: str, paths: Paths, log: Logger) -> None:
+def git_commit(date: str, theme: str, paths: Paths, log: Logger) -> bool:
+    """当日の教材と記録ファイルだけをコミットする（ほかの変更は巻き込まない）"""
     root = paths.root
     if not (root / ".git").exists():
         log("git: リポジトリではないのでコミットしません")
-        return
+        return False
     files = [f"content/{date}.json", "data/themes.json", "data/vocab-index.json"]
     try:
         subprocess.run(["git", "add", "--", *files], cwd=root, check=True, capture_output=True)
@@ -326,8 +328,29 @@ def git_commit(date: str, theme: str, paths: Paths, log: Logger) -> None:
         r = subprocess.run(["git", "commit", "-m", msg, "--", *files], cwd=root, capture_output=True)
         out = (r.stdout + r.stderr).decode("utf-8", errors="replace").strip().splitlines()
         log(f"git: {'コミットしました' if r.returncode == 0 else 'コミットしませんでした'}（{out[0] if out else ''}）")
+        return r.returncode == 0
     except (OSError, subprocess.CalledProcessError) as e:
         log(f"git: 失敗（{e}）")
+        return False
+
+
+def git_push(paths: Paths, log: Logger) -> bool:
+    """今のブランチを origin に push（GitHub Actions が公開サイトを作り直す）。
+
+    無人実行なので、認証の入力待ちで止まらないようにする（失敗したらログに残して終わる）。
+    Claude 自身には push を許していない。push するのは検証を済ませたこのスクリプトだけ。
+    """
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    try:
+        r = subprocess.run(["git", "push", "origin", "HEAD"], cwd=paths.root, env=env,
+                           capture_output=True, timeout=180)
+        out = (r.stdout + r.stderr).decode("utf-8", errors="replace").strip().splitlines()
+        tail = out[-1] if out else ""
+        log(f"git: {'push しました' if r.returncode == 0 else 'push できませんでした'}（{tail}）")
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"git: push できませんでした（{e}）")
+        return False
 
 
 # ---------------------------------------------------------------- 本体
@@ -353,7 +376,7 @@ def smoke(paths: Paths = DEFAULT_PATHS) -> int:
 
 
 def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = False, commit: bool = False,
-         notify_: bool = True, retries: int = 1, dry_run: bool = False) -> int:
+         notify_: bool = True, retries: int = 1, dry_run: bool = False, push: bool = False) -> int:
     d = target_date(date)
     paths.logs.mkdir(parents=True, exist_ok=True)
     log = Logger(paths.logs / f"{d}-nightly.log")
@@ -440,9 +463,13 @@ def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = Fa
             return finish("failed", f"一時的なエラーが続きました（{last_transient}）。しばらくして "
                                     f"lesson nightly {d} で再実行。続く場合は lesson login --force", st)
         return finish("failed", "教材が完成しませんでした（ログを確認）", st)
-    if commit:
+    note = ""
+    if commit or push:
         git_commit(d, st.get("theme", ""), paths, log)
-    return finish("success", f"{st.get('theme', '')} → {st.get('html', '')}", st)
+    if push:
+        summary["pushed"] = git_push(paths, log)
+        note = "（GitHub に反映）" if summary["pushed"] else "（GitHub への push に失敗。ログを確認）"
+    return finish("success", f"{st.get('theme', '')} → {st.get('html', '')}{note}", st)
 
 
 if __name__ == "__main__":

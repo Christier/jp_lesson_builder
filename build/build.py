@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import html
+import json
 import re
 import sys
 from pathlib import Path
@@ -383,7 +384,23 @@ def build_index(paths: Paths = DEFAULT_PATHS) -> Path | None:
     html_out = _env(paths).get_template("index.html.j2").render(items=items)
     out = paths.dist / "index.html"
     write_text_atomic(out, html_out)
+    write_text_atomic(paths.dist / "latest.html", latest_redirect(items[0] if items else None))
     return out
+
+
+def latest_redirect(item: dict | None) -> str:
+    """dist/latest.html：いつ開いても最新の教材へ飛ぶページ（ブックマーク・公開サイト用）"""
+    href = item["href"] if item else "index.html"
+    label = f"{item['date_jp']}（{item['weekday']}）{item['emoji']} {item['theme']}" if item else "教材一覧"
+    return (
+        "<!DOCTYPE html>\n<html lang=\"ja\"><head><meta charset=\"UTF-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">"
+        f"<meta http-equiv=\"refresh\" content=\"0; url={href}\"><title>最新の教材へ</title>"
+        "<style>body{font-family:sans-serif;background:#111827;color:#f9fafb;padding:2rem}a{color:#fde68a}</style>"
+        f"</head><body><p>最新の教材に移動します… <a href=\"{href}\">{html.escape(label)}</a></p>"
+        "<p><a href=\"index.html\">教材一覧</a></p>"
+        f"<script>location.replace({json.dumps(href)});</script></body></html>\n"
+    )
 
 
 def main(date: str, paths: Paths = DEFAULT_PATHS, quiet: bool = False) -> Path:
