@@ -2,7 +2,7 @@
 """
 schedule.py — Windows タスクスケジューラへの登録・確認・削除。
 
-    lesson schedule install [--time 22:00] [--commit] [--push] [--wake] [--visible]   毎日決まった時刻に nightly.cmd を実行
+    lesson schedule install [--time 22:00] [--commit] [--push] [--keep-days N] [--wake] [--visible]   毎日決まった時刻に nightly.cmd を実行
     lesson schedule status                                       次回・前回の実行と結果
     lesson schedule run                                          登録したタスクを今すぐ実行
     lesson schedule uninstall                                    登録を削除
@@ -84,8 +84,10 @@ def _windows() -> bool:
 
 
 def install(paths: Paths = DEFAULT_PATHS, time_: str = "22:00", commit: bool = False, wake: bool = False,
-            visible: bool = False, push: bool = False) -> int:
+            visible: bool = False, push: bool = False, keep_days: int = 0) -> int:
     extra = ["--push"] if push else ["--commit"] if commit else []
+    if keep_days:
+        extra += ["--keep-days", str(keep_days)]
     if not _windows():
         print("Windows 以外では cron に登録してください（crontab -e）:")
         h, m = time_.split(":")
@@ -95,6 +97,7 @@ def install(paths: Paths = DEFAULT_PATHS, time_: str = "22:00", commit: bool = F
     if rc:
         raise UserError(f"タスクの登録に失敗しました: {out}")
     print(f"[schedule] 登録しました: {TASK}（毎日 {time_}{'・git commit＋push' if push else '・git commit あり' if commit else ''}"
+          f"{f'・直近{keep_days}日分だけ残す' if keep_days else ''}"
           f"{'・スリープ解除' if wake else ''}{'・窓を表示' if visible else '・窓なし'}）")
     print(f"[schedule] {out}")
     return 0

@@ -6,10 +6,10 @@ jp-lesson-builder の自動テスト（標準ライブラリ unittest のみ）�
 本物の content/ data/ dist/ は一切書き換えない。毎回一時ディレクトリに
 プロジェクトの複製を作り、その中でビルド・検証・記録を行う。
 
-  * templates/・data/palettes.json・content/2026-09-19.json … 本物をコピー
-  * data/themes.json・data/vocab-index.json … tests/fixtures/data/ の固定版をコピー
-    （9/19 教材まで記録済みの時点で凍結。日々の lesson record で本物の data/ が
-      育っても、テストの期待値は変わらない）
+  * templates/・data/palettes.json … 本物をコピー
+  * content/2026-09-19.json・data/themes.json・data/vocab-index.json … tests/fixtures/ の固定版をコピー
+    （9/19 教材まで記録済みの時点で凍結。日々の lesson record で本物の data/ が育っても、
+      lesson clean で本物の古い教材が消えても、テストの期待値は変わらない）
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class ProjectCase(unittest.TestCase):
         shutil.copy2(ROOT / "data" / "palettes.json", self.tmp / "data")
         for name in ("themes.json", "vocab-index.json"):
             shutil.copy2(FIXTURES / "data" / name, self.tmp / "data")
-        shutil.copy2(ROOT / "content" / f"{SAMPLE}.json", self.tmp / "content")
+        shutil.copy2(FIXTURES / "content" / f"{SAMPLE}.json", self.tmp / "content")
         self.paths = Paths(self.tmp)
         self._quiet = contextlib.redirect_stdout(io.StringIO())  # [new] [record] などの出力を抑える
         self._quiet.__enter__()

@@ -12,12 +12,13 @@ import sys
 import textwrap
 import time
 import unittest
-from datetime import datetime
+from datetime import date as Date_, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import build  # noqa: E402
+import clean  # noqa: E402
 import drafts  # noqa: E402
 import nightly  # noqa: E402
 import schedule  # noqa: E402
@@ -171,13 +172,18 @@ prompt = sys.stdin.read()
 log = pathlib.Path(os.environ["FAKE_LOG"])
 with log.open("a", encoding="utf-8") as f:
     f.write(json.dumps({"args": args, "prompt": prompt}, ensure_ascii=False) + "\n")
-if mode.startswith("transient"):  # 最初の N 回はトークン更新の競合（2026-10-17 22:00 の再現）
-    n = int(mode[len("transient"):] or 1)
+MSGS = {  # 最初の N 回は、実際に起きたエラーを返す
+    "transient": "Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh.",
+    "limit": "You've hit your weekly limit · resets 6pm (Asia/Tokyo)",   # 2026-10-23 の再現
+}
+prefix = next((p for p in MSGS if mode.startswith(p)), None)
+if prefix:
+    n = int(mode[len(prefix):] or 1)
     cnt = pathlib.Path(str(log) + ".count")
     k = int(cnt.read_text()) if cnt.exists() else 0
     cnt.write_text(str(k + 1))
     if k < n:
-        msg = "Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh."
+        msg = MSGS[prefix]
         print(json.dumps({"type": "assistant", "is_api_error_message": True,
                           "message": {"content": [{"type": "text", "text": msg}]}}))
         print(json.dumps({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
@@ -367,11 +373,125 @@ class TestNightly(ProjectCase):
                                                 "data/vocab-index.json"]))  # 当日分だけ
         self.assertIn("GitHub に反映", self.latest()["message"])
 
+    def test_push_with_clean_commits_deletions(self):
+        import subprocess
+        def git(*a, cwd=self.tmp):
+            return subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True,
+                                  encoding="utf-8").stdout.strip()
+        remote = self.tmp.parent / (self.tmp.name + "-remote.git")
+        self.addCleanup(lambda: __import__("shutil").rmtree(remote, ignore_errors=True))
+        git("init", "--bare", "-b", "main", str(remote), cwd=self.tmp.parent)
+        git("init", "-b", "main")
+        git("config", "user.name", "test"); git("config", "user.email", "test@example.com")
+        git("add", "content", "data"); git("commit", "-m", "init")
+        git("remote", "add", "origin", str(remote))
+        git("push", "origin", "main")
+        # 今日から見て 9/19 も 9/20 も古いが、いちばん新しい 9/20 は必ず残る
+        self.assertEqual(self.run_nightly("complete", retries=0, push=True, keep_days=3), 0)
+        status = git("show", "--name-status", "--format=%s", "main", cwd=remote).splitlines()
+        self.assertIn("整理", status[0])
+        self.assertIn(f"A\tcontent/{self.DATE}.json", status)
+        self.assertIn(f"D\tcontent/{SAMPLE}.json", status)       # 片付けた教材の削除も push される
+        self.assertIn("A\tdata/readings.json", status)           # 消した教材の読みは引き継ぐ
+        self.assertFalse(self.paths.content_file(SAMPLE).exists())
+
+    def test_usage_limit_parse(self):
+        now = datetime(2026, 10, 23, 22, 2)
+        self.assertEqual(nightly.usage_limit({"text": "You've hit your weekly limit · resets 6pm (Asia/Tokyo)"}, now),
+                         ("weekly", datetime(2026, 10, 24, 18, 0)))
+        self.assertEqual(nightly.usage_limit({"text": "You've hit your session limit · resets 12:50am"}, now),
+                         ("session", datetime(2026, 10, 24, 0, 50)))
+        self.assertIsNone(nightly.usage_limit({"text": "Failed to refresh OAuth token"}, now))
+
+    def test_usage_limit_far_reset_stops_immediately(self):
+        waits = self.no_wait()
+        old = nightly.LIMIT_WAIT_MAX
+        nightly.LIMIT_WAIT_MAX = 0  # リセットが遠い（2026-10-23 は翌日18時）
+        self.addCleanup(setattr, nightly, "LIMIT_WAIT_MAX", old)
+        self.assertEqual(self.run_nightly("limit99", retries=1), 1)
+        j = self.latest()
+        self.assertEqual(len(j["runs"]), 1)        # 10分おきの無駄な再試行をしない
+        self.assertEqual(waits, [])
+        self.assertIn("利用上限（weekly）", j["message"])
+        self.assertNotIn("login", j["message"])    # ログインの問題ではない
+
+    def test_usage_limit_near_reset_waits_then_succeeds(self):
+        waits = self.no_wait()
+        old = nightly.LIMIT_WAIT_MAX
+        nightly.LIMIT_WAIT_MAX = 10 ** 9
+        self.addCleanup(setattr, nightly, "LIMIT_WAIT_MAX", old)
+        self.assertEqual(self.run_nightly("limit1", retries=0), 0)
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 0)
+        self.assertEqual(self.latest()["status"], "success")
+
     def test_lock_prevents_double_run(self):
         self.paths.logs.mkdir(parents=True, exist_ok=True)
         (self.paths.logs / "nightly.lock").write_text("pid=1", encoding="utf-8")
         self.assertEqual(self.run_nightly("noop"), 1)
         self.assertIn("実行中", self.latest()["message"])
+
+
+# ====================================================================== 片付け
+class TestClean(ProjectCase):
+    TODAY = Date_(2026, 10, 28)
+
+    def make(self, days_ago: int, tip: str = "") -> str:
+        d = self.TODAY - timedelta(days=days_ago)
+        c = json.loads(json.dumps(self.base))
+        c["meta"].update(date=d.isoformat(), date_jp=f"{d.year}年{d.month}月{d.day}日",
+                         weekday="月火水木金土日"[d.weekday()])
+        if tip:
+            c["news"]["articles"][0]["tooltips"][0]["body"] = tip
+        self.save(c, d.isoformat())
+        build.main(d.isoformat(), self.paths, quiet=True)
+        (self.paths.drafts / d.isoformat()).mkdir(parents=True, exist_ok=True)
+        (self.paths.drafts / d.isoformat() / "news.json").write_text("{}", encoding="utf-8")
+        self.paths.logs.mkdir(exist_ok=True)
+        (self.paths.logs / f"{d.isoformat()}-claude.jsonl").write_text("x" * 1000, encoding="utf-8")
+        return d.isoformat()
+
+    def setUp(self):
+        super().setUp()
+        self.base = self.sample()
+        self.paths.content_file(SAMPLE).unlink()  # 9/19 のサンプルそのものは使わない
+        self.dates = [self.make(n) for n in (0, 1, 2, 3, 5)]
+
+    def remaining(self):
+        return sorted(f.stem for f in self.paths.content.glob("*.json"))
+
+    def test_keeps_three_days(self):
+        r = clean.main(3, self.paths, today=self.TODAY, log=lambda *_: None)
+        self.assertEqual(self.remaining(), sorted(self.dates[:3]))
+        self.assertEqual(sorted(r["content"]), sorted(f"content/{d}.json" for d in self.dates[3:]))
+        html = sorted(f.name for f in self.paths.dist.glob("N1*.html"))
+        self.assertEqual(len(html), 3)
+        self.assertEqual(sorted(d.name for d in self.paths.drafts.iterdir()), sorted(self.dates[:3]))
+        self.assertEqual(len(list(self.paths.logs.glob("*-claude.jsonl"))), 3)
+        idx = (self.paths.dist / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("10/23", idx)  # 一覧も作り直される
+
+    def test_dry_run_deletes_nothing(self):
+        before = self.remaining()
+        r = clean.main(3, self.paths, today=self.TODAY, dry_run=True, log=lambda *_: None)
+        self.assertEqual(self.remaining(), before)
+        self.assertEqual(r["count"], 0)
+
+    def test_newest_is_always_kept(self):
+        clean.main(1, self.paths, today=self.TODAY + timedelta(days=30), log=lambda *_: None)
+        self.assertEqual(self.remaining(), [self.dates[0]])
+
+    def test_readings_survive_deletion(self):
+        old = self.make(10, tip="📌 <strong>見極める（みきわめる）</strong>：看清")
+        clean.main(3, self.paths, today=self.TODAY, log=lambda *_: None)
+        self.assertFalse(self.paths.content_file(old).exists())
+        saved = load_json(self.paths.data / "readings.json")["entries"]
+        self.assertEqual(saved["見極"], [["見極", "みきわ"]])
+        self.assertEqual(build.reading_dictionary(self.paths)["見極"], [("見極", "みきわ")])
+
+    def test_invalid_keep_days(self):
+        with self.assertRaises(UserError):
+            clean.main(0, self.paths, today=self.TODAY, log=lambda *_: None)
 
 
 # ====================================================================== タスク登録

@@ -33,6 +33,7 @@
     <button type="button" class="tool" id="tool-fg" onclick="cycleFurigana()" title="振り仮名の表示を切り替え">ふりがな：表示</button>
     <button type="button" class="tool" id="tool-hl" onclick="toggleSetting('hl')" title="ハイライトの表示を切り替え">ハイライト：表示</button>
     <button type="button" class="tool" id="tool-cn" onclick="toggleSetting('cn')" title="会話・見出しの中国語訳をぼかす（タップで個別に表示）">中文：表示</button>
+    <select class="tool tool-select" id="tool-voice" onchange="setVoice(this.value)" title="読み上げの声（自然な声が上）" aria-label="読み上げの声" hidden></select>
     <span class="tool-group" title="文字サイズ"><button type="button" class="tool" onclick="fontStep(-1)" aria-label="文字を小さく">A−</button><button type="button" class="tool" onclick="fontStep(1)" aria-label="文字を大きく">A＋</button></span>
   </div>
 </div>
@@ -48,6 +49,7 @@
       <div class="legend-item"><span class="p-play-demo">▶</span><span>段落ごとに読み上げ</span></div>
     </div>
     <div class="audio-note">{{ news.audio_note }}</div>
+    <div class="voice-hint" hidden>💡 このブラウザには機械的な日本語音声しかありません。<b>Microsoft Edge</b> で開くと自然なニューラル音声（Nanami・Keita）で、<b>Chrome</b> なら「Google 日本語」で読み上げます。上部の「声」で切り替えられます。</div>
   </div>
 
   <nav class="news-toc" aria-label="本日のニュース">
@@ -157,6 +159,7 @@
     <div class="tts-speed">速度：<select id="speed-ttsdlg" class="speed-sel"><option value="0.7">0.7x</option><option value="0.85" selected>0.85x</option><option value="1.0">1.0x</option></select></div>
     <div class="tts-status" id="statusdlg">{{ scene.get('tts_hint','▶ 再生ボタンを押してください') }}</div>
   </div>
+  <div class="voice-hint" hidden>💡 機械的な音声しかありません。Edge（Nanami・Keita）や Chrome（Google 日本語）で開くと自然に聞こえます。</div>
   <div id="dialogue-full" style="display:none;">{{ scene.dialogue_full }}</div>
 
   <div class="dialogue-wrap">

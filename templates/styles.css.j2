@@ -40,6 +40,10 @@ button{font-family:inherit;}
 .tool:hover{background:rgba(255,255,255,.22);}
 .tool.off{opacity:.65;border-style:dashed;}
 .tool-group{display:inline-flex;gap:.2rem;}
+.tool-select{max-width:15rem;padding-right:.4rem;}
+.tool-select option{color:#111827;background:#fff;}
+.voice-hint{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:.6rem;padding:.6rem .9rem;font-size:.84rem;line-height:1.7;margin:.6rem 0;}
+.voice-hint[hidden]{display:none;}
 
 .panel{background:#fff;border-radius:1rem;padding:2rem;box-shadow:0 10px 40px rgba(0,0,0,.35);}
 .panel-h{color:var(--ink);font-size:1.4rem;margin-bottom:.6rem;line-height:1.5;}
@@ -163,6 +167,11 @@ body.cn-blur .b-cn.reveal,body.cn-blur .hl-cn.reveal{filter:none;}
 .turn.right .bubble{background:{{ p.bubble_right }};}
 .b-jp{font-size:calc(1rem * var(--fs));color:#222;line-height:2;margin-bottom:.3rem;}
 .b-cn{font-size:.85rem;color:#888;font-style:italic;}
+.bubble{position:relative;}
+.t-play{position:absolute;top:.45rem;right:.45rem;width:1.6rem;height:1.6rem;border-radius:50%;border:1px solid var(--soft-border);background:#fff;color:var(--ink2);font-size:.62rem;cursor:pointer;opacity:.5;}
+.turn .bubble:hover .t-play,.t-play:focus-visible,.turn.reading .t-play{opacity:1;}
+.turn .b-jp{padding-right:1.6rem;}
+.turn.reading .bubble{box-shadow:0 0 0 3px var(--tip-border);}
 .b-note{font-size:.8rem;color:var(--ink2);margin-top:.35rem;padding-top:.35rem;border-top:1px dashed var(--soft-border);line-height:1.6;}
 
 .challenge{background:#fef3c7;border:2px solid #f59e0b;border-radius:.75rem;padding:1.5rem;margin:2rem 0;}
@@ -223,7 +232,7 @@ body.cn-blur .b-cn.reveal,body.cn-blur .hl-cn.reveal{filter:none;}
 /* ---------- 印刷：解説をすべて展開した学習シート ---------- */
 @media print{
   body{background:#fff;padding:0;}
-  .topbar,.tts-player,.p-play,.notes-area,.quiz-btn,.say,.to-top,.tip-pop,.footer-note,.news-toc{display:none!important;}
+  .topbar,.tts-player,.p-play,.t-play,.voice-hint,.notes-area,.quiz-btn,.say,.to-top,.tip-pop,.footer-note,.news-toc{display:none!important;}
   .panel{box-shadow:none;padding:0;margin-bottom:1.5rem;}
   .panel.hidden,.quiz-a.hidden{display:block!important;}
   .tip-store .tooltip-box.hidden{display:block!important;}

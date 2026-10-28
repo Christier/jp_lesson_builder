@@ -2,7 +2,7 @@
 """
 nightly.py — 毎晩の自動生成（無人実行）。タスクスケジューラから nightly.cmd 経由で呼ばれる。
 
-    lesson nightly [DATE] [--force] [--commit] [--push] [--no-notify] [--retries N] [--dry-run]
+    lesson nightly [DATE] [--force] [--commit] [--push] [--keep-days N] [--no-notify] [--retries N] [--dry-run]
     lesson nightly --smoke      Claude Code を非対話で起動できるかだけ確かめる（教材は作らない）
 
 流れ:
@@ -245,6 +245,28 @@ _TRANSIENT = re.compile(r"OAuth|refresh|token|overloaded|rate.?limit|429|5\d\d|t
 STALE_LOCK_MIN = 10
 
 
+LIMIT_WAIT_MAX = 3 * 3600  # リセットまでこれ以内なら待つ（秒）
+_LIMIT = re.compile(r"hit your ([\w ]+?) limit.*?resets\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.I | re.S)
+
+
+def usage_limit(s: dict, now: datetime | None = None) -> tuple[str, datetime | None] | None:
+    """利用上限に達したなら（種類, リセット時刻）。時刻が読めなければ None を返す
+
+    例: "You've hit your weekly limit · resets 6pm (Asia/Tokyo)"
+        "You've hit your session limit · resets 12:50am (Asia/Tokyo)"
+    """
+    text = s.get("text") or ""
+    m = _LIMIT.search(text)
+    if not m:
+        return ("usage", None) if re.search(r"hit your .*limit", text, re.I) else None
+    now = now or datetime.now()
+    hour = int(m.group(2)) % 12 + (12 if m.group(4).lower() == "pm" else 0)
+    reset = now.replace(hour=hour, minute=int(m.group(3) or 0), second=0, microsecond=0)
+    if reset <= now:
+        reset += timedelta(days=1)
+    return m.group(1).strip(), reset
+
+
 def transient_error(s: dict) -> str:
     """一時的なエラーなら理由（短い文字列）、そうでなければ空文字"""
     text = (s.get("text") or "").strip()
@@ -315,16 +337,19 @@ def notify(title: str, body: str, open_path: str = "") -> bool:
         return False
 
 
-def git_commit(date: str, theme: str, paths: Paths, log: Logger) -> bool:
-    """当日の教材と記録ファイルだけをコミットする（ほかの変更は巻き込まない）"""
+def git_commit(date: str, theme: str, paths: Paths, log: Logger, cleaned: int = 0) -> bool:
+    """教材データ（content/）と記録（data/）だけをコミットする。
+
+    片付け（lesson clean）で消した古い教材の削除もここで記録される。コードなどほかの変更は巻き込まない。
+    """
     root = paths.root
     if not (root / ".git").exists():
         log("git: リポジトリではないのでコミットしません")
         return False
-    files = [f"content/{date}.json", "data/themes.json", "data/vocab-index.json"]
+    files = ["content", "data"]
     try:
-        subprocess.run(["git", "add", "--", *files], cwd=root, check=True, capture_output=True)
-        msg = f"lesson: {date} {theme}（夜間自動生成）"
+        subprocess.run(["git", "add", "-A", "--", *files], cwd=root, check=True, capture_output=True)
+        msg = f"lesson: {date} {theme}（夜間自動生成{f'・古い教材{cleaned}件を整理' if cleaned else ''}）"
         r = subprocess.run(["git", "commit", "-m", msg, "--", *files], cwd=root, capture_output=True)
         out = (r.stdout + r.stderr).decode("utf-8", errors="replace").strip().splitlines()
         log(f"git: {'コミットしました' if r.returncode == 0 else 'コミットしませんでした'}（{out[0] if out else ''}）")
@@ -376,7 +401,8 @@ def smoke(paths: Paths = DEFAULT_PATHS) -> int:
 
 
 def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = False, commit: bool = False,
-         notify_: bool = True, retries: int = 1, dry_run: bool = False, push: bool = False) -> int:
+         notify_: bool = True, retries: int = 1, dry_run: bool = False, push: bool = False,
+         keep_days: int = 0) -> int:
     d = target_date(date)
     paths.logs.mkdir(parents=True, exist_ok=True)
     log = Logger(paths.logs / f"{d}-nightly.log")
@@ -423,7 +449,8 @@ def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = Fa
     try:
         with single_run(paths.logs / "nightly.lock"):
             attempt = transient = 0
-            last_transient = ""
+            last_transient = limit_msg = ""
+            waited_limit = False
             while True:
                 n = len(summary["runs"]) + 1
                 log(f"[nightly] Claude Code を起動（{n}回目{'・続きから' if resume else ''}）")
@@ -440,6 +467,19 @@ def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = Fa
                     break
                 if st["exists"]:
                     resume = "\n".join(f"- {e}" for e in st["errors"][:15]) or "- data/themes.json に未記録"
+                lim = usage_limit(s) if reason else None
+                if lim:
+                    kind, reset = lim
+                    wait = (reset - datetime.now()).total_seconds() + 90 if reset else None
+                    if wait is not None and 0 < wait <= LIMIT_WAIT_MAX and not waited_limit:
+                        waited_limit = True
+                        log(f"[nightly] Claude の利用上限（{kind}）→ リセット {reset:%H:%M} まで待ってから再実行")
+                        SLEEP(wait)
+                        continue
+                    when = f"リセットは {reset:%m/%d %H:%M}" if reset else "リセット時刻は不明"
+                    limit_msg = (f"Claude の利用上限（{kind}）に達したため中止しました（{when}）。"
+                                 f"リセット後に lesson nightly {d} で作り直せます")
+                    break
                 if reason:
                     last_transient = reason
                     if transient >= len(BACKOFF_SEC):
@@ -459,13 +499,21 @@ def main(date: str | None = None, paths: Paths = DEFAULT_PATHS, force: bool = Fa
         return finish("failed", str(e))
 
     if not complete(st):
+        if limit_msg:
+            return finish("failed", limit_msg, st)
         if summary["runs"] and summary["runs"][-1]["transient"]:
             return finish("failed", f"一時的なエラーが続きました（{last_transient}）。しばらくして "
                                     f"lesson nightly {d} で再実行。続く場合は lesson login --force", st)
         return finish("failed", "教材が完成しませんでした（ログを確認）", st)
-    note = ""
+    note, cleaned = "", 0
+    if keep_days:
+        import clean
+        try:
+            cleaned = clean.main(keep_days, paths, log=log)["count"]
+        except (UserError, OSError) as e:
+            log(f"[clean] 片付けに失敗（教材の生成は成功）: {e}")
     if commit or push:
-        git_commit(d, st.get("theme", ""), paths, log)
+        git_commit(d, st.get("theme", ""), paths, log, cleaned=cleaned)
     if push:
         summary["pushed"] = git_push(paths, log)
         note = "（GitHub に反映）" if summary["pushed"] else "（GitHub への push に失敗。ログを確認）"

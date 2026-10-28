@@ -71,8 +71,8 @@ def _skeleton(head: str) -> str:
     return head[runs[0].start():runs[-1].end()]
 
 
-def reading_dictionary(paths: Paths = DEFAULT_PATHS, extra: dict | None = None) -> dict[str, list]:
-    """全教材のツールチップ・語彙カードの「語（よみ）」から作る読みの辞書。
+def collect_readings(c: dict, gdict: dict) -> dict:
+    """教材1つ分のツールチップ・語彙カードの「語（よみ）」を gdict に足す（既にある語は上書きしない）。
 
     キーは語の骨格（例：浮き彫りになる → 浮き彫）。漢字1字だけの骨格は
     読みが語によって変わる（上ヒゲ／上がる）ので入れない。
@@ -83,45 +83,64 @@ def reading_dictionary(paths: Paths = DEFAULT_PATHS, extra: dict | None = None) 
         if pairs and sum(len(k) for k, _ in pairs) >= 2 and sk not in gdict:
             gdict[sk] = pairs
 
-    def scan(c: dict) -> None:
-        if not isinstance(c, dict):
-            return
-        news = c.get("news") if isinstance(c.get("news"), dict) else {}
-        for a in news.get("articles", []) if isinstance(news.get("articles"), list) else []:
-            for t in a.get("tooltips", []) if isinstance(a, dict) else []:
-                m = _TIP_HEAD.search((t or {}).get("body", "") if isinstance(t, dict) else "")
-                if m:
-                    add(*((m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))))
-        cards = []
-        for a in news.get("articles", []) if isinstance(news.get("articles"), list) else []:
-            if isinstance(a, dict) and isinstance(a.get("vocab_box"), dict):
-                cards += a["vocab_box"].get("items", [])
-        scene = c.get("scene") if isinstance(c.get("scene"), dict) else {}
-        cards += scene.get("vocab", []) if isinstance(scene.get("vocab"), list) else []
-        ext = c.get("ext") if isinstance(c.get("ext"), dict) else {}
-        for s in ext.get("sections", []) if isinstance(ext.get("sections"), list) else []:
-            if isinstance(s, dict) and s.get("type") == "cards":
-                cards += s.get("items", [])
-        for v in cards:
-            m = _CARD_HEAD.match(v.get("jp", "")) if isinstance(v, dict) else None
+    if not isinstance(c, dict):
+        return gdict
+    news = c.get("news") if isinstance(c.get("news"), dict) else {}
+    arts = news.get("articles", []) if isinstance(news.get("articles"), list) else []
+    for a in arts:
+        for t in a.get("tooltips", []) if isinstance(a, dict) else []:
+            m = _TIP_HEAD.search((t or {}).get("body", "") if isinstance(t, dict) else "")
             if m:
-                add(m.group(1), m.group(2))
+                add(*((m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))))
+    cards = []
+    for a in arts:
+        if isinstance(a, dict) and isinstance(a.get("vocab_box"), dict):
+            cards += a["vocab_box"].get("items", [])
+    scene = c.get("scene") if isinstance(c.get("scene"), dict) else {}
+    cards += scene.get("vocab", []) if isinstance(scene.get("vocab"), list) else []
+    ext = c.get("ext") if isinstance(c.get("ext"), dict) else {}
+    for s in ext.get("sections", []) if isinstance(ext.get("sections"), list) else []:
+        if isinstance(s, dict) and s.get("type") == "cards":
+            cards += s.get("items", [])
+    for v in cards:
+        m = _CARD_HEAD.match(v.get("jp", "")) if isinstance(v, dict) else None
+        if m:
+            add(m.group(1), m.group(2))
+    return gdict
 
+
+def saved_readings(paths: Paths = DEFAULT_PATHS) -> dict[str, list]:
+    """data/readings.json：片付けた（削除した）教材から引き継いだ読み"""
+    f = paths.data / "readings.json"
+    if not f.exists():
+        return {}
+    try:
+        entries = load_json(f).get("entries", {})
+    except (UserError, AttributeError):
+        return {}
+    return {k: [tuple(x) for x in v] for k, v in entries.items() if isinstance(v, list)}
+
+
+def reading_dictionary(paths: Paths = DEFAULT_PATHS, extra: dict | None = None) -> dict[str, list]:
+    """振り仮名の辞書。優先順：その日の教材 → 新しい教材 → data/readings.json（片付けた教材の読み）"""
     gdict: dict[str, list] = {}
     if extra:
-        scan(extra)  # その日の教材の読みを最優先
-    files = sorted(paths.content.glob("*.json"), reverse=True)  # 次に新しい教材の読み
-    key = (str(paths.content), tuple((f.name, f.stat().st_mtime_ns) for f in files))
+        collect_readings(extra, gdict)
+    files = sorted(paths.content.glob("*.json"), reverse=True)
+    saved = paths.data / "readings.json"
+    key = (str(paths.content), tuple((f.name, f.stat().st_mtime_ns) for f in files),
+           saved.stat().st_mtime_ns if saved.exists() else 0)
     if key not in _GDICT_CACHE:
-        own, gdict = gdict, {}
+        base: dict[str, list] = {}
         for f in files:
             try:
-                scan(load_json(f))
+                collect_readings(load_json(f), base)
             except UserError:
                 continue
+        for k, v in saved_readings(paths).items():
+            base.setdefault(k, v)
         _GDICT_CACHE.clear()
-        _GDICT_CACHE[key] = gdict
-        gdict = own
+        _GDICT_CACHE[key] = base
     for k, v in _GDICT_CACHE[key].items():
         gdict.setdefault(k, v)
     return gdict

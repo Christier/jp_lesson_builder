@@ -54,12 +54,12 @@ cd ~/projects/jp_lesson_builder
 ### 1-3. 動作確認
 
 ```powershell
-.\lesson.cmd test                  # 自動テスト（65件）
-.\lesson.cmd check 2026-09-19      # サンプルをビルド＆検証
-.\lesson.cmd open 2026-09-19       # ブラウザで開く
+.\lesson.cmd test                  # 自動テスト（79件。サンプル教材は tests/fixtures/ にある）
+.\lesson.cmd rebuild               # 今ある教材を全部ビルド＆検証
+start dist\index.html              # 教材一覧をブラウザで開く
 ```
 
-`ERROR 0` と表示され、ブラウザに教材が出れば完了。
+`NG 0件` と表示され、ブラウザに教材一覧が出れば完了。
 
 ### 1-4. Claude Code を起動
 
@@ -125,6 +125,8 @@ Claude Code で次を打つだけ:
 | 振り仮名 | 重要語・難読語・固有名詞に付く。上部バーの「ふりがな」で **表示 → タップで表示 → 非表示** を切り替え（「タップで表示」は読みを隠して自分で読む練習用） |
 | 解説ポップアップ | ハイライト語をクリック（Tab で選んで Enter でも可）すると、その語のすぐ下に解説。🔊で発音。Esc／外側クリックで閉じる。スマホでは画面下から出る |
 | 段落ごとの読み上げ | 各段落の左の ▶。全文再生中は読んでいる段落に色が付く。本文に書いた振り仮名（固有名詞など）は読みのほうで読み上げる |
+| 読み上げの声 | ブラウザにある日本語音声から、いちばん自然な声を自動で選ぶ（Edge の Natural 音声 Nanami・Keita ＞ Chrome の Google 日本語 ＞ Apple の拡張音声 ＞ Windows 標準）。上部バーの「声」で手動でも選べる。機械的な声しかないときは、自然な声が使えるブラウザを画面で案内する |
+| 会話の読み上げ | 話者ごとに声を変える（同じくらい自然な別の声があれば使い分け、なければ声の高さを変える）。読んでいる吹き出しに枠が付く。吹き出し右上の ▶ でそのセリフだけ再生（シャドーイング用） |
 | ハイライト非表示 | 素の文章で読む練習用 |
 | 中文をぼかす | 会話・見出しの中国語訳をぼかし、タップしたものだけ表示（自分で訳してから確認） |
 | 文字サイズ | A−／A＋（0.85〜1.5倍） |
@@ -155,13 +157,34 @@ Claude Code で次を打つだけ:
 | `schedule status` | 次回の実行時刻と、直近の生成結果（`logs/latest.json`） |
 | `schedule run` | 登録したタスクを今すぐ実行 |
 | `schedule uninstall` | 登録を削除 |
-| `nightly [DATE] [--force] [--dry-run]` | 夜間処理を手動で実行（`nightly.cmd` をダブルクリックしても同じ）。`--dry-run` は Claude を起動せず内容だけ表示 |
+| `nightly [DATE] [--force] [--push] [--keep-days N] [--dry-run]` | 夜間処理を手動で実行（`nightly.cmd` をダブルクリックしても同じ）。`--dry-run` は Claude を起動せず内容だけ表示 |
 | `nightly --smoke` | Claude Code CLI を非対話で起動できるかだけ確認（数秒・教材は作らない） |
 
 - ログ：`logs/<日付>-nightly.log`（進み具合と Claude の最終報告）、`logs/<日付>-claude.jsonl`（全やりとり）、`logs/latest.json`（直近の結果）
 - 無人実行で Claude に許すのは `./lesson.sh`・読み取り系コマンド・ファイル編集・Web検索だけ（`rm`・`git push` などは禁止）
 - PC がログオンしていないと実行されない（パスワードを保存しないため）。22時にスリープしていた場合は、次に起きたときに実行される
+- Claude の利用上限（session／weekly）に達したときは、リセットが3時間以内ならその時刻まで待って再実行、
+  それより先なら無駄に再試行せずに中止し、リセット時刻を通知する（後で `lesson nightly <日付>` で作り直せる）
+- `--keep-days 3` を付けて登録すると、完成後に古い教材を片付け（下の「片付け」）、その削除も commit・push される
 - 使うモデルを固定したいときは環境変数 `LESSON_NIGHTLY_MODEL`、claude の場所が特殊なら `CLAUDE_BIN`
+
+### 片付け（容量の節約）
+
+```powershell
+.\lesson.cmd clean --dry-run        # 消す対象と容量を表示するだけ
+.\lesson.cmd clean                  # 直近3日分（今日を含む）だけ残す
+.\lesson.cmd clean --keep-days 7    # 日数を変える
+```
+
+- 消すもの：古い `content/<日付>.json`・`dist` の HTML・`drafts/<日付>/`・`logs/<日付>-*`
+  （いちばん容量を食うのは夜間実行のログ `*-claude.jsonl`）
+- 残すもの：`data/`（テーマ履歴・語彙インデックス。同じテーマ・語彙を繰り返さないために必要）、`notes/`、
+  `logs/latest.json`、`tmp/` のバックアップ。いちばん新しい教材は、古くても必ず残す
+- 消す教材の「語（よみ）」は `data/readings.json` に引き継ぐ（自動振り仮名の辞書が痩せない）
+- 消した教材は git の履歴に残る。戻すとき：
+  `git log --oneline -- content/2026-10-20.json` で消したコミットを探し、`git checkout <その1つ前> -- content/2026-10-20.json`
+- 夜間実行（`schedule install --push --keep-days 3`）では、完成後に自動で片付け、削除もまとめて push する。
+  公開サイトにも直近3日分だけが載る
 
 ### 公開サイト（GitHub Pages）
 
@@ -179,6 +202,8 @@ GitHub Actions（.github/workflows/pages.yml）
 - push は検証を済ませた `nightly.py` が行う。Claude 自身には push を許していない
   （`.claude/settings.json` の deny と、無人実行時の `--disallowedTools`）
 - 公開リポジトリなので、教材（ニュースの要約・引用を含む）とコミット履歴は誰でも見られる
+- コミットのメールアドレスは GitHub の匿名アドレス（`6516402+Christier@users.noreply.github.com`）。
+  このリポジトリだけの設定（`.git/config`）なので、ほかのリポジトリには影響しない
 
 ---
 
@@ -200,6 +225,7 @@ macOS / Linux / Git Bash は `./lesson.sh <コマンド>`、`make <コマンド>
 | `open [DATE]` | 生成HTMLを既定のブラウザで開く |
 | `rebuild` | `content/*.json` を全部ビルド＆検証（テンプレート改修後の回帰確認） |
 | `review [DATE] [--save]` | 語彙の復習レポート（定着候補／要再訪／一度きり／記録漏れ） |
+| `clean [--keep-days 3] [--dry-run]` | 古い教材・HTML・下書き・ログを片付け、直近 N 日分だけ残す（「片付け」） |
 | `nightly` / `schedule` | 毎晩の自動生成（「4. 毎晩の自動生成」） |
 | `login [--force]` | Claude Code CLI にログイン（`claude.exe` を自動で探すので PATH 不要。夜間実行の前に一度） |
 | `doctor` | Python・Jinja2・データファイル・Claude Code CLI（ログイン状態）の点検 |
@@ -249,7 +275,8 @@ jp_lesson_builder/
 ├── data/
 │   ├── palettes.json      配色8種
 │   ├── themes.json        会話テーマ使用履歴＋候補リスト
-│   └── vocab-index.json   既出語彙インデックス（復習リンク用）
+│   ├── vocab-index.json   既出語彙インデックス（復習リンク用）
+│   └── readings.json      片付けた教材から引き継いだ振り仮名の辞書（lesson clean が更新）
 ├── notes/                 /news や /review の出力先
 ├── drafts/                執筆中の下書き（git 管理外）
 ├── logs/                  夜間実行のログ（git 管理外）
@@ -351,6 +378,8 @@ JSON の末尾には記録用の `index`（テーマ名と重要語彙・文法5
 | 夜間実行が「別の nightly が実行中です」 | 本当に動いていなければ `logs/nightly.lock` を削除（6時間たてば自動で外れる） |
 | 夜間実行で教材が完成しなかった | `logs/<日付>-nightly.log` に未完成の理由（validate の ERROR）がある。`.\lesson.cmd nightly <日付>` で続きから再実行できる |
 | ログに `Failed to refresh OAuth token: another Claude Code process is refreshing it…` | ちょうどトークンの更新時刻に、別の Claude Code（デスクトップアプリ等）と更新がぶつかった一時的なエラー。nightly は 1→2→5→10 分の間隔で自動的に再試行し、10分以上残った更新ロック（`%USERPROFILE%\.claude\.oauth_refresh.lock`）も外す。それでも続くときは `.\lesson.cmd login --force` |
+| ログに `You've hit your weekly limit · resets …`／`session limit` | Claude の利用上限。対話での利用と夜間実行は同じ枠を使う。リセット後に `.\lesson.cmd nightly <日付>` で作り直す（3時間以内にリセットされるときは nightly が自動で待つ） |
+| 読み上げが機械的に聞こえる | 上部の「声」で「（自然）」の付いた声を選ぶ。一覧に無ければ Edge（Nanami・Keita）か Chrome（Google 日本語）で開く |
 | 夜間実行のログに「push できませんでした」 | 教材はローカルに完成している。PowerShell で `git push` を一度手動で実行（Git Credential Manager に資格情報が保存され、次回から自動で通る） |
 | 公開サイトが更新されない | GitHub の Actions タブで「Pages（教材サイトの公開）」の結果を見る（validate の ERROR やテスト失敗のときは公開しない） |
 | タスクスケジューラの「前回の結果」が 0 なのに失敗している | 窓なし起動（conhost --headless）は終了コードを返さない。本当の結果は `lesson schedule status` の「直近の実行」を見る |

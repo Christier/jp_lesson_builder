@@ -12,6 +12,7 @@ lesson.py — jp-lesson-builder の統一コマンド（Windows / macOS / Linux 
     lesson open     [DATE]   生成HTMLをブラウザで開く
     lesson rebuild           content/*.json を全部ビルド＆検証（テンプレート改修後の回帰確認）
     lesson review   [DATE]   語彙の復習レポート（--save で notes/ に保存）
+    lesson clean             古い教材を片付ける（既定：直近3日分だけ残す。--dry-run で確認だけ）
     lesson nightly  [DATE]   無人実行：Claude Code に取材〜記録まで任せ、結果を検証（nightly.cmd の中身）
     lesson schedule install|status|run|uninstall   毎晩の自動実行（タスクスケジューラ）
     lesson doctor            実行環境の点検
@@ -57,13 +58,14 @@ def cmd_nightly(a) -> int:
     if a.smoke:
         return nightly.smoke(P)
     return nightly.main(a.date, P, force=a.force, commit=a.commit, notify_=not a.no_notify,
-                        retries=a.retries, dry_run=a.dry_run, push=a.push)
+                        retries=a.retries, dry_run=a.dry_run, push=a.push, keep_days=a.keep_days)
 
 
 def cmd_schedule(a) -> int:
     import schedule
     if a.action == "install":
-        return schedule.install(P, a.time, commit=a.commit, wake=a.wake, visible=a.visible, push=a.push)
+        return schedule.install(P, a.time, commit=a.commit, wake=a.wake, visible=a.visible, push=a.push,
+                                keep_days=a.keep_days)
     if a.action == "status":
         return schedule.status(P)
     if a.action == "run":
@@ -171,6 +173,12 @@ def cmd_login(a) -> int:
     return 0 if ok else 1
 
 
+def cmd_clean(a) -> int:
+    import clean
+    clean.main(a.keep_days, P, dry_run=a.dry_run)
+    return 0
+
+
 def cmd_doctor(a) -> int:
     ok = True
     print(f"Python  : {sys.version.split()[0]}  ({sys.executable})")
@@ -266,6 +274,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="完成済みでも作り直す")
     p.add_argument("--commit", action="store_true", help="完成したら当日分を git commit")
     p.add_argument("--push", action="store_true", help="完成したら当日分を commit して push（公開サイトを更新）")
+    p.add_argument("--keep-days", type=int, default=0, help="完成後に古い教材を片付け、直近 N 日分だけ残す（0=しない）")
     p.add_argument("--no-notify", action="store_true", help="トースト通知を出さない")
     p.add_argument("--retries", type=int, default=1, help="未完成のとき続きから再実行する回数（既定1）")
     p.add_argument("--dry-run", action="store_true", help="Claude を起動せず、実行内容だけ表示")
@@ -275,10 +284,14 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--time", default="22:00", help="実行時刻 HH:MM（既定 22:00）")
     p.add_argument("--commit", action="store_true", help="完成したら git commit する")
     p.add_argument("--push", action="store_true", help="完成したら commit して push する（公開サイトを毎日更新）")
+    p.add_argument("--keep-days", type=int, default=0, help="完成後に直近 N 日分の教材だけ残す（0=片付けない）")
     p.add_argument("--wake", action="store_true", help="スリープ中なら起こして実行する")
     p.add_argument("--visible", action="store_true", help="実行中のコンソール窓を表示する（既定は窓なし）")
     p = add("login", cmd_login, "Claude Code CLI にログイン（夜間実行の前に一度）", date=False)
     p.add_argument("--force", action="store_true", help="ログイン済みでもやり直す")
+    p = add("clean", cmd_clean, "古い教材を片付ける（直近 N 日分だけ残す）", date=False)
+    p.add_argument("--keep-days", type=int, default=3, help="残す日数（今日を含む。既定3）")
+    p.add_argument("--dry-run", action="store_true", help="消す対象を表示するだけ")
     add("doctor", cmd_doctor, "実行環境の点検", date=False)
     add("setup", cmd_setup, ".venv を作って依存を入れる", date=False)
     p = add("test", cmd_test, "自動テストを実行", date=False)
